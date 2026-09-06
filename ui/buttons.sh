@@ -1,40 +1,33 @@
 #!/bin/bash
 export LC_ALL=C
 
-draw_category_header() {
+draw_section() {
     local title="$1"
-    echo -e "\n  ${C_BOLD}${C_YELLOW}╔══[ $title ]${C_RESET}\n"
+    echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $title${C_RESET}"
+    echo -e "  ${C_GRAY}──────────────────────────────────────${C_RESET}"
 }
 
 render_btn() {
-    local num="$1"
-    local text="$2"
-    local desc="$3"
-    printf "  ${C_CYAN}⟦${C_BOLD}%s${C_RESET}${C_CYAN}⟧${C_RESET} %-30s ${C_GRAY}%s${C_RESET}\n" "$num" "$text" "$desc"
+    local key="$1"
+    local title="$2"
+    printf "  ${C_CYAN}[ ${C_BOLD}%s${C_RESET}${C_CYAN} ]${C_RESET}  ${C_BOLD}%s${C_RESET}\n" "$key" "$title"
 }
 
-render_back_btn() {
-    local text="${1:-Back / Exit}"
-    echo -e "\n  ${C_RED}⟦0⟧${C_RESET} ${C_BOLD}$text${C_RESET}"
+render_danger_btn() {
+    local key="$1"
+    local title="$2"
+    printf "  ${C_RED}[ ${C_BOLD}%s${C_RESET}${C_RED} ]  %s${C_RESET}\n" "$key" "$title"
 }
 
-draw_divider() {
-    echo -e "  ${C_GRAY}────────────────────────────────────────────────────────────────────────${C_RESET}"
+msg_ok() {
+    echo -e "\n  ${C_GREEN}✔ $1${C_RESET}"
 }
 
-msg_success() {
-    echo -e "  ${C_GREEN}✔ $1${C_RESET}"
-}
-
-msg_error() {
-    echo -e "  ${C_RED}✖ $1${C_RESET}"
-}
-
-msg_info() {
-    echo -e "  ${C_CYAN}ℹ $1${C_RESET}"
+msg_err() {
+    echo -e "\n  ${C_RED}✖ $1${C_RESET}"
 }
 
 ui_pause() {
     echo ""
-    read -p "  Press [Enter] key to continue..." _
+    read -p "  [Press Enter to continue]" _
 }

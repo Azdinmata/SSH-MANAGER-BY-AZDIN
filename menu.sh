@@ -48,6 +48,22 @@ with open(path, "w") as f: json.dump(cfg, f, indent=2)
     systemctl restart v2ray 2>/dev/null || true
 }
 
+# دالة مدمجة لعرض جدول المستخدمين في أي شاشة
+display_users_table() {
+    echo -e "  ${C_BOLD}${C_YELLOW}Active Users Database:${C_RESET}"
+    if [ ! -s "$DB_FILE" ]; then
+        echo -e "  ${C_GRAY}(No active accounts found)${C_RESET}"
+    else
+        printf "  ${C_CYAN}%-12s | %-10s | %-8s | %-5s${C_RESET}\n" "USER" "EXPIRY" "LIMIT" "PASS"
+        echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+        while IFS=: read -r u p exp lim bw _; do
+            [[ -z "$u" || "$u" =~ ^# ]] && continue
+            printf "  %-12s | %-10s | %-8s | %-5s\n" "$u" "$exp" "$lim Dev" "$p"
+        done < "$DB_FILE"
+    fi
+    echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+}
+
 update_script() {
     printf "\033[2J\033[3J\033[H"
     echo -e "\n  ${C_CYAN}[*] Fetching latest updates from GitHub...${C_RESET}"
@@ -110,8 +126,7 @@ purge_everything() {
 
     echo -e "${C_RED}[*] Erasing directories, binaries & services...${C_RESET}"
     rm -rf /etc/ssh-manager /usr/local/etc/v2ray /etc/v2ray /root/udp /etc/nginx /etc/letsencrypt
-    rm -f /usr/local/bin/ssh-manager /usr/local/bin/menu* /bin/menu /usr/bin/menu
-    rm -f /usr/local/bin/badvpn-udpgw /usr/local/bin/udp-custom /usr/local/bin/dnstt-server /usr/local/bin/ws-dropbear /usr/local/bin/session-watchdog
+    rm -f /usr/local/bin/ssh-manager /usr/local/bin/menu* /bin/menu /usr/local/bin/badvpn-udpgw /usr/local/bin/udp-custom /usr/local/bin/dnstt-server /usr/local/bin/ws-dropbear /usr/local/bin/session-watchdog
     rm -f /etc/systemd/system/badvpn.service /etc/systemd/system/udp-custom.service /etc/systemd/system/dnstt.service /etc/systemd/system/ws-dropbear.service
     systemctl daemon-reload
 
@@ -128,18 +143,25 @@ menu_users() {
     while true; do
         draw_banner
         draw_section "USER MANAGEMENT"
-        render_btn "1" "Create Account (Lifetime/Custom)"
+        
+        # ظهور جدول الحسابات تلقائياً في واجهة إدارة المستخدمين
+        display_users_table
+        echo ""
+
+        render_btn "1" "Create New Account"
         render_btn "2" "Edit Account (Pass/Limit/Expiry)"
-        render_btn "3" "List All Accounts"
-        render_btn "4" "Get Account Credentials Card"
-        render_btn "5" "Delete User Account"
+        render_btn "3" "Get Account Credentials Card"
+        render_btn "4" "Delete Single User"
+        render_danger_btn "5" "Delete ALL Users (Purge Accounts)"
         render_btn "0" "Back to Dashboard"
         
         echo ""
         read -p "  Select: " opt
         case "$opt" in
             1)
-                echo ""
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "CREATE NEW ACCOUNT"
                 read -p "  Username: " u
                 [[ -z "$u" ]] && continue
                 if id "$u" &>/dev/null; then msg_err "User exists!"; ui_pause; continue; fi
@@ -171,7 +193,13 @@ menu_users() {
                 ui_pause
                 ;;
             2)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "EDIT ACCOUNT"
+                display_users_table
+                echo ""
                 read -p "  Username to edit: " target
+                [[ -z "$target" ]] && continue
                 local rec=$(grep "^$target:" "$DB_FILE")
                 if [[ -z "$rec" ]]; then msg_err "User not found!"; ui_pause; continue; fi
                 IFS=: read -r cur_u cur_p cur_exp cur_lim cur_bw _rest <<< "$rec"
@@ -203,30 +231,69 @@ menu_users() {
                 ui_pause
                 ;;
             3)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "ACCOUNT DETAILS & LINKS"
+                display_users_table
                 echo ""
-                printf "  ${C_CYAN}%-12s | %-10s | %-8s${C_RESET}\n" "USER" "EXPIRY" "LIMIT"
-                echo "  ──────────────────────────────────────"
-                while IFS=: read -r u p exp lim bw _; do
-                    [[ -z "$u" || "$u" =~ ^# ]] && continue
-                    printf "  %-12s | %-10s | %-8s\n" "$u" "$exp" "$lim Dev"
-                done < "$DB_FILE"
-                ui_pause
-                ;;
-            4)
                 read -p "  Username: " target
+                [[ -z "$target" ]] && continue
                 local rec=$(grep "^$target:" "$DB_FILE")
                 if [[ -z "$rec" ]]; then msg_err "Not found!"; ui_pause; continue; fi
                 IFS=: read -r u p exp lim bw _rest <<< "$rec"
                 draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
                 ui_pause
                 ;;
-            5)
+            4)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "DELETE USER"
+                display_users_table
+                echo ""
                 read -p "  Username to delete: " target
+                [[ -z "$target" ]] && continue
+                local rec=$(grep "^$target:" "$DB_FILE")
+                if [[ -z "$rec" ]]; then msg_err "User not found!"; ui_pause; continue; fi
+                
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")
                 userdel -f "$target" 2>/dev/null
                 sed -i "/^$target:/d" "$DB_FILE"
                 sync_v2ray "$target" "" "$u_uuid" "delete"
-                msg_ok "User deleted."
+                msg_ok "User '$target' deleted successfully."
+                ui_pause
+                ;;
+            5)
+                printf "\033[2J\033[3J\033[H"
+                echo -e "${C_RED}"
+                echo "=========================================="
+                echo "         DELETE ALL USERS CONFIRM         "
+                echo "=========================================="
+                echo -e "${C_RESET}"
+                display_users_table
+                echo ""
+                read -p "Type 'CONFIRM' to delete ALL users: " all_confirm
+                if [ "$all_confirm" = "CONFIRM" ]; then
+                    while IFS=: read -r u _rest; do
+                        [[ -n "$u" && ! "$u" =~ ^# ]] && userdel -f "$u" 2>/dev/null
+                    done < "$DB_FILE"
+                    > "$DB_FILE"
+                    
+                    # تصفير عملاء V2Ray
+                    python3 -c '
+import json
+path = "/usr/local/etc/v2ray/config.json"
+try:
+    with open(path, "r") as f: cfg = json.load(f)
+    for ib in cfg.get("inbounds", []):
+        ib["settings"]["clients"] = []
+    with open(path, "w") as f: json.dump(cfg, f, indent=2)
+except Exception: pass
+' 2>/dev/null || true
+                    systemctl restart v2ray 2>/dev/null || true
+                    msg_ok "All users deleted and database cleared."
+                else
+                    msg_err "Action aborted."
+                fi
                 ui_pause
                 ;;
             0) break ;;

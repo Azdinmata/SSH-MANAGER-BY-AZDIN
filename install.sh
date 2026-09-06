@@ -1,39 +1,69 @@
-#!/bin/bash
-export LC_ALL=C
-clear
+cat << 'EOF' > /usr/local/bin/ws-dropbear
+#!/usr/bin/env python3
+import socket, threading, select
 
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root."
-    exit 1
-fi
+LISTEN_PORT = 10015
+SSH_TARGET = ("127.0.0.1", 22)
 
-echo "========================================================"
-echo "      SSH-MANAGER [By-AZDIN] COMPLETE INSTALLER         "
-echo "========================================================"
-echo ""
-read -p "Enter GitHub Username (where menu.sh is hosted): " GH_USER
-read -p "Enter GitHub Repo Name: " GH_REPO
-read -p "Enter Domain pointing to this VPS: " USER_DOMAIN
-if [ -z "$USER_DOMAIN" ] || [ -z "$GH_USER" ] || [ -z "$GH_REPO" ]; then
-    echo "Inputs cannot be empty."
-    exit 1
-fi
+def handle_client(client_sock):
+    try:
+        req = b""
+        while b"\r\n\r\n" not in req:
+            chunk = client_sock.recv(1024)
+            if not chunk:
+                client_sock.close()
+                return
+            req += chunk
+        client_sock.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+        target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        target_sock.connect(SSH_TARGET)
+        sockets = [client_sock, target_sock]
+        while True:
+            r, _, _ = select.select(sockets, [], [])
+            if client_sock in r:
+                data = client_sock.recv(4096)
+                if not data: break
+                target_sock.sendall(data)
+            if target_sock in r:
+                data = target_sock.recv(4096)
+                if not data: break
+                client_sock.sendall(data)
+    except Exception:
+        pass
+    finally:
+        client_sock.close()
 
-read -p "Enter Nameserver Domain for DNSTT (e.g. ns.domain.com): " NS_DOMAIN
-NS_DOMAIN=${NS_DOMAIN:-"ns.$USER_DOMAIN"}
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("127.0.0.1", LISTEN_PORT))
+srv.listen(200)
 
-mkdir -p /etc/ssh-manager/ssl
-mkdir -p /etc/ssh-manager/dnstt
-echo "$USER_DOMAIN" > /etc/ssh-manager/domain.conf
-echo "$NS_DOMAIN" > /etc/ssh-manager/nsdomain.conf
-touch /etc/ssh-manager/users.db
+while True:
+    csock, _ = srv.accept()
+    threading.Thread(target=handle_client, args=(csock,), daemon=True).start()
+EOF
 
-echo "[1/8] Opening Firewall and Clearing Ports..."
-which ufw >/dev/null 2>&1 && ufw disable 2>/dev/null || true
-iptables -P INPUT ACCEPT
-iptables -P FORWARD ACCEPT
-iptables -P OUTPUT ACCEPT
-iptables -F
+chmod +x /usr/local/bin/ws-dropbear
+
+cat << 'EOF' > /etc/systemd/system/ws-dropbear.service
+[Unit]
+Description=SSH WebSocket Bridge
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/ws-dropbear
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable ws-dropbear
+systemctl restart ws-dropbear
+
+sed -i 's|proxy_pass http://127.0.0.1:22;|proxy_pass http://127.0.0.1:10015;|' /etc/nginx/sites-available/default
+systemctl restart nginx
 iptables -X
 iptables -t nat -F
 iptables -t nat -X

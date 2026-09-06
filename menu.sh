@@ -1,23 +1,86 @@
+cat << 'EOF' > /usr/local/bin/menu
 #!/bin/bash
 export LC_ALL=C
-clear
-
-UI_DIR="/etc/ssh-manager/ui"
-BASE_UI_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/ui"
-
-mkdir -p "$UI_DIR"
-for comp in colors banner buttons cards; do
-    if [ ! -f "$UI_DIR/$comp.sh" ]; then
-        curl -fsSL -o "$UI_DIR/$comp.sh" "$BASE_UI_URL/$comp.sh" 2>/dev/null
-        chmod +x "$UI_DIR/$comp.sh" 2>/dev/null
-    fi
-    [ -f "$UI_DIR/$comp.sh" ] && source "$UI_DIR/$comp.sh"
-done
 
 DB_FILE="/etc/ssh-manager/users.db"
 DOMAIN_FILE="/etc/ssh-manager/domain.conf"
 NS_FILE="/etc/ssh-manager/nsdomain.conf"
+mkdir -p /etc/ssh-manager
 touch "$DB_FILE"
+
+C_RESET="\033[0m"
+C_BOLD="\033[1m"
+C_CYAN="\033[38;5;51m"
+C_BLUE="\033[38;5;39m"
+C_PURPLE="\033[38;5;141m"
+C_GREEN="\033[38;5;48m"
+C_YELLOW="\033[38;5;220m"
+C_RED="\033[38;5;196m"
+C_GRAY="\033[38;5;244m"
+
+draw_banner() {
+    printf "\033[2J\033[3J\033[H"
+    local cur_dom="127.0.0.1"
+    [ -f "$DOMAIN_FILE" ] && cur_dom=$(cat "$DOMAIN_FILE")
+
+    local cpu_load=$(top -bn1 2>/dev/null | awk -F',' '/Cpu\(s\)/ {print $1}' | awk '{print $2}' || echo "0.0")
+    local mem_used=$(free -m 2>/dev/null | awk '/Mem:/ {print $3}' || echo "0")
+    local mem_total=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}' || echo "1")
+    local mem_pct=$(( mem_used * 100 / (mem_total > 0 ? mem_total : 1) ))
+    local s_up=$(uptime -p 2>/dev/null | sed -e 's/up //' -e 's/ hours\?/h/' -e 's/ minutes\?/m/' || echo "N/A")
+    local online_ssh=$(who 2>/dev/null | wc -l)
+    local total_accs=$(grep -c . "$DB_FILE" 2>/dev/null || echo "0")
+
+    local s_ssh="●"; systemctl is-active --quiet ssh && s_ssh="${C_GREEN}●${C_RESET}" || s_ssh="${C_RED}●${C_RESET}"
+    local s_ws="●"; systemctl is-active --quiet ws-dropbear && s_ws="${C_GREEN}●${C_RESET}" || s_ws="${C_RED}●${C_RESET}"
+    local s_v2r="●"; systemctl is-active --quiet v2ray && s_v2r="${C_GREEN}●${C_RESET}" || s_v2r="${C_RED}●${C_RESET}"
+    local s_ngx="●"; systemctl is-active --quiet nginx && s_ngx="${C_GREEN}●${C_RESET}" || s_ngx="${C_RED}●${C_RESET}"
+
+    echo -e "${C_CYAN}┌────────────────────────────────────────┐${C_RESET}"
+    echo -e "${C_CYAN}│${C_RESET}       ${C_BOLD}${C_YELLOW}SSH-MANAGER BY-AZDIN${C_RESET}             ${C_CYAN}│${C_RESET}"
+    echo -e "${C_CYAN}├────────────────────────────────────────┤${C_RESET}"
+    echo -e "${C_CYAN}│${C_RESET} ${C_BOLD}TASK MANAGER (LIVE)${C_RESET}                    ${C_CYAN}│${C_RESET}"
+    printf "${C_CYAN}│${C_RESET} CPU: ${C_YELLOW}%-5s${C_RESET} | RAM: ${C_YELLOW}%s/%sMB (%s%%)${C_RESET}  ${C_CYAN}│${C_RESET}\n" "${cpu_load}%" "$mem_used" "$mem_total" "$mem_pct"
+    printf "${C_CYAN}│${C_RESET} UP : ${C_GREEN}%-6s${C_RESET} | ONLINE: ${C_GREEN}%-2s${C_RESET} | USERS: ${C_GREEN}%-3s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$s_up" "$online_ssh" "$total_accs"
+    echo -e "${C_CYAN}├────────────────────────────────────────┤${C_RESET}"
+    printf "${C_CYAN}│${C_RESET} SRV: SSH:%b WS:%b V2R:%b NGX:%b            ${C_CYAN}│${C_RESET}\n" "$s_ssh" "$s_ws" "$s_v2r" "$s_ngx"
+    printf "${C_CYAN}│${C_RESET} DOM: ${C_PURPLE}%-33s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$cur_dom"
+    echo -e "${C_CYAN}└────────────────────────────────────────┘${C_RESET}"
+}
+
+draw_section() {
+    echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $1${C_RESET}"
+    echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+}
+
+render_btn() {
+    printf "  ${C_CYAN}[ ${C_BOLD}%s${C_RESET}${C_CYAN} ]${C_RESET}  ${C_BOLD}%s${C_RESET}\n" "$1" "$2"
+}
+
+render_danger_btn() {
+    printf "  ${C_RED}[ ${C_BOLD}%s${C_RESET}${C_RED} ]  %s${C_RESET}\n" "$1" "$2"
+}
+
+ui_pause() {
+    echo ""
+    read -p "  [Press Enter to continue]" _
+    printf "\033[2J\033[3J\033[H"
+}
+
+display_users_table() {
+    echo -e "  ${C_BOLD}${C_YELLOW}Active Users Database:${C_RESET}"
+    if [ ! -s "$DB_FILE" ]; then
+        echo -e "  ${C_GRAY}(No active accounts found)${C_RESET}"
+    else
+        printf "  ${C_CYAN}%-12s | %-10s | %-8s | %-6s${C_RESET}\n" "USER" "EXPIRY" "LIMIT" "PASS"
+        echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+        while IFS=: read -r u p exp lim bw _; do
+            [[ -z "$u" || "$u" =~ ^# ]] && continue
+            printf "  %-12s | %-10s | %-8s | %-6s\n" "$u" "$exp" "$lim Dev" "$p"
+        done < "$DB_FILE"
+    fi
+    echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+}
 
 sync_v2ray() {
     local u="$1" p="$2" uuid="$3" action="$4"
@@ -27,7 +90,6 @@ path = "/usr/local/etc/v2ray/config.json"
 try:
     with open(path, "r") as f: cfg = json.load(f)
 except Exception: sys.exit(0)
-
 u, pwd, uuid_str, act = sys.argv[1:5]
 for ib in cfg.get("inbounds", []):
     port = ib.get("port")
@@ -42,100 +104,86 @@ for ib in cfg.get("inbounds", []):
         clients = [c for c in clients if c.get("id") != uuid_str and c.get("email") != u]
         if act in ["add", "update"]: clients.append({"id": uuid_str, "email": u})
     ib["settings"]["clients"] = clients
-
 with open(path, "w") as f: json.dump(cfg, f, indent=2)
 ' "$u" "$p" "$uuid" "$action" 2>/dev/null || true
     systemctl restart v2ray 2>/dev/null || true
 }
 
-# دالة مدمجة لعرض جدول المستخدمين في أي شاشة
-display_users_table() {
-    echo -e "  ${C_BOLD}${C_YELLOW}Active Users Database:${C_RESET}"
-    if [ ! -s "$DB_FILE" ]; then
-        echo -e "  ${C_GRAY}(No active accounts found)${C_RESET}"
-    else
-        printf "  ${C_CYAN}%-12s | %-10s | %-8s | %-5s${C_RESET}\n" "USER" "EXPIRY" "LIMIT" "PASS"
-        echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
-        while IFS=: read -r u p exp lim bw _; do
-            [[ -z "$u" || "$u" =~ ^# ]] && continue
-            printf "  %-12s | %-10s | %-8s | %-5s\n" "$u" "$exp" "$lim Dev" "$p"
-        done < "$DB_FILE"
-    fi
-    echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+draw_user_card() {
+    local u="$1" p="$2" exp="$3" lim="$4" bw="$5"
+    local dom=$(cat "$DOMAIN_FILE" 2>/dev/null || echo "127.0.0.1")
+    local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
+
+    local vmess_json="{\"v\":\"2\",\"ps\":\"$u\",\"add\":\"$dom\",\"port\":\"443\",\"id\":\"$u_uuid\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$dom\",\"path\":\"/v2ray\",\"tls\":\"tls\",\"sni\":\"$dom\"}"
+    local vmess_link="vmess://$(echo -n "$vmess_json" | base64 -w 0 2>/dev/null || true)"
+    local trojan_link="trojan://$p@$dom:443?security=tls&sni=$dom&type=ws&path=%2Ftrojan#$u"
+    local vless_link="vless://$u_uuid@$dom:443?security=tls&encryption=none&type=ws&sni=$dom&path=%2Fvless#$u"
+
+    echo ""
+    echo -e "${C_YELLOW}┌──[ ACCOUNT CREDENTIALS ]───────────────┐${C_RESET}"
+    printf "${C_YELLOW}│${C_RESET} USER  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$u"
+    printf "${C_YELLOW}│${C_RESET} PASS  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$p"
+    printf "${C_YELLOW}│${C_RESET} EXP   : %-30s ${C_YELLOW}│${C_RESET}\n" "$exp"
+    printf "${C_YELLOW}│${C_RESET} LIMIT : %-30s ${C_YELLOW}│${C_RESET}\n" "$lim Devices | $([ "$bw" = "0" ] && echo "Unlim" || echo "$bw GB")"
+    echo -e "${C_YELLOW}├──[ QUICK CONFIG LINKS ]────────────────┤${C_RESET}"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS:${C_RESET}\n$vless_link\n"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}TROJAN:${C_RESET}\n$trojan_link\n"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMESS:${C_RESET}\n$vmess_link"
+    echo -e "${C_YELLOW}└────────────────────────────────────────┘${C_RESET}"
 }
 
 update_script() {
     printf "\033[2J\033[3J\033[H"
-    echo -e "\n  ${C_CYAN}[*] Fetching latest updates from GitHub...${C_RESET}"
-    
+    echo -e "\n  ${C_CYAN}[*] Updating script from GitHub...${C_RESET}"
     local REPO_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main"
-    
-    for comp in colors banner buttons cards; do
-        curl -fsSL -o "/etc/ssh-manager/ui/$comp.sh" "$REPO_URL/ui/$comp.sh" 2>/dev/null || true
-        chmod +x "/etc/ssh-manager/ui/$comp.sh" 2>/dev/null || true
-    done
-    
-    curl -fsSL -o /usr/local/bin/ssh-manager "$REPO_URL/menu.sh" 2>/dev/null || true
+    rm -rf /etc/ssh-manager/ui
+    curl -fsSL -o /usr/local/bin/ssh-manager "$REPO_URL/menu.sh" 2>/dev/null
     chmod +x /usr/local/bin/ssh-manager
     ln -sf /usr/local/bin/ssh-manager /usr/local/bin/menu
-    ln -sf /usr/local/bin/ssh-manager /bin/menu
-    
-    msg_ok "Script and UI updated successfully!"
+    echo -e "  ${C_GREEN}✔ Updated successfully.${C_RESET}"
     ui_pause
     exec menu
 }
 
 purge_everything() {
     printf "\033[2J\033[3J\033[H"
-    echo -e "${C_RED}"
-    echo "=========================================="
+    echo -e "${C_RED}=========================================="
     echo "       COMPLETE UNINSTALL & PURGE         "
-    echo "=========================================="
-    echo -e "${C_RESET}"
+    echo -e "==========================================${C_RESET}"
     read -p "Type 'DELETE' to erase everything: " confirm
     if [ "$confirm" != "DELETE" ]; then
-        msg_err "Uninstall canceled."
+        echo -e "\n  ${C_RED}Action canceled.${C_RESET}"
         ui_pause
         return
     fi
 
-    echo -e "\n${C_RED}[*] Stopping and disabling all services...${C_RESET}"
     systemctl stop nginx apache2 v2ray badvpn udp-custom dnstt ws-dropbear 2>/dev/null
     systemctl disable nginx apache2 v2ray badvpn udp-custom dnstt ws-dropbear 2>/dev/null
-
     pkill -9 -f badvpn 2>/dev/null
     pkill -9 -f udp-custom 2>/dev/null
     pkill -9 -f dnstt-server 2>/dev/null
     pkill -9 -f v2ray 2>/dev/null
     pkill -9 -f ws-dropbear 2>/dev/null
     fuser -k 80/tcp 443/tcp 53/udp 7300/udp 10015/tcp 2>/dev/null
-
-    echo -e "${C_RED}[*] Clearing Cron Jobs...${C_RESET}"
     crontab -r 2>/dev/null || true
 
-    echo -e "${C_RED}[*] Deleting all created users...${C_RESET}"
     if [ -f "$DB_FILE" ]; then
         while IFS=: read -r u _rest; do
             [[ -n "$u" && ! "$u" =~ ^# ]] && userdel -f "$u" 2>/dev/null
         done < "$DB_FILE"
     fi
 
-    echo -e "${C_RED}[*] Purging system packages...${C_RESET}"
     apt-get purge -y nginx nginx-common v2ray certbot python3-certbot-nginx 2>/dev/null
     apt-get autoremove -y --purge 2>/dev/null
 
-    echo -e "${C_RED}[*] Erasing directories, binaries & services...${C_RESET}"
     rm -rf /etc/ssh-manager /usr/local/etc/v2ray /etc/v2ray /root/udp /etc/nginx /etc/letsencrypt
-    rm -f /usr/local/bin/ssh-manager /usr/local/bin/menu* /bin/menu /usr/local/bin/badvpn-udpgw /usr/local/bin/udp-custom /usr/local/bin/dnstt-server /usr/local/bin/ws-dropbear /usr/local/bin/session-watchdog
+    rm -f /usr/local/bin/ssh-manager /usr/local/bin/menu* /bin/menu /usr/bin/menu
+    rm -f /usr/local/bin/badvpn-udpgw /usr/local/bin/udp-custom /usr/local/bin/dnstt-server /usr/local/bin/ws-dropbear /usr/local/bin/session-watchdog
     rm -f /etc/systemd/system/badvpn.service /etc/systemd/system/udp-custom.service /etc/systemd/system/dnstt.service /etc/systemd/system/ws-dropbear.service
     systemctl daemon-reload
 
-    unalias menu 2>/dev/null || true
-    sed -i '/menu/d' ~/.bashrc /root/.bashrc /etc/bash.bashrc /etc/profile /etc/environment 2>/dev/null || true
-    hash -r
-
     systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
-    echo -e "\n${C_GREEN}✔ SSH-MANAGER has been completely wiped from your server!${C_RESET}\n"
+    echo -e "\n  ${C_GREEN}✔ Everything wiped clean.${C_RESET}\n"
     exit 0
 }
 
@@ -143,28 +191,25 @@ menu_users() {
     while true; do
         draw_banner
         draw_section "USER MANAGEMENT"
-        
-        # ظهور جدول الحسابات تلقائياً في واجهة إدارة المستخدمين
         display_users_table
         echo ""
-
         render_btn "1" "Create New Account"
-        render_btn "2" "Edit Account (Pass/Limit/Expiry)"
-        render_btn "3" "Get Account Credentials Card"
+        render_btn "2" "Edit User (Pass/Limit/Exp)"
+        render_btn "3" "Get User Credentials Card"
         render_btn "4" "Delete Single User"
-        render_danger_btn "5" "Delete ALL Users (Purge Accounts)"
+        render_danger_btn "5" "Delete ALL Users"
         render_btn "0" "Back to Dashboard"
-        
+
         echo ""
         read -p "  Select: " opt
         case "$opt" in
             1)
                 printf "\033[2J\033[3J\033[H"
                 draw_banner
-                draw_section "CREATE NEW ACCOUNT"
+                draw_section "CREATE ACCOUNT"
                 read -p "  Username: " u
                 [[ -z "$u" ]] && continue
-                if id "$u" &>/dev/null; then msg_err "User exists!"; ui_pause; continue; fi
+                if id "$u" &>/dev/null; then echo -e "  ${C_RED}User exists!${C_RESET}"; ui_pause; continue; fi
                 read -p "  Password: " p
                 [[ -z "$p" ]] && continue
                 read -p "  Days (0 for Lifetime) [30]: " d
@@ -179,13 +224,12 @@ menu_users() {
                 fi
                 read -p "  Limit Devices [2]: " lim
                 lim=${lim:-2}
-                read -p "  Bandwidth GB (0=Unlimited) [0]: " bw
+                read -p "  Bandwidth GB (0=Unlim) [0]: " bw
                 bw=${bw:-0}
 
                 echo "$u:$p" | chpasswd
                 usermod -U "$u" 2>/dev/null
                 echo "$u:$p:$exp:$lim:$bw:" >> "$DB_FILE"
-
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
                 sync_v2ray "$u" "$p" "$u_uuid" "add"
 
@@ -198,10 +242,10 @@ menu_users() {
                 draw_section "EDIT ACCOUNT"
                 display_users_table
                 echo ""
-                read -p "  Username to edit: " target
+                read -p "  Enter username to edit: " target
                 [[ -z "$target" ]] && continue
                 local rec=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$rec" ]]; then msg_err "User not found!"; ui_pause; continue; fi
+                if [[ -z "$rec" ]]; then echo -e "  ${C_RED}User not found!${C_RESET}"; ui_pause; continue; fi
                 IFS=: read -r cur_u cur_p cur_exp cur_lim cur_bw _rest <<< "$rec"
 
                 read -p "  New Pass [Enter=Keep]: " np
@@ -222,24 +266,23 @@ menu_users() {
                 echo "$target:$np" | chpasswd
                 sed -i "/^$target:/d" "$DB_FILE"
                 echo "$target:$np:$nexp:$nlim:$nbw:" >> "$DB_FILE"
-
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")
                 sync_v2ray "$target" "$np" "$u_uuid" "update"
 
-                msg_ok "Account updated."
+                echo -e "  ${C_GREEN}✔ Updated.${C_RESET}"
                 draw_user_card "$target" "$np" "$nexp" "$nlim" "$nbw"
                 ui_pause
                 ;;
             3)
                 printf "\033[2J\033[3J\033[H"
                 draw_banner
-                draw_section "ACCOUNT DETAILS & LINKS"
+                draw_section "GET CREDENTIALS"
                 display_users_table
                 echo ""
-                read -p "  Username: " target
+                read -p "  Enter username: " target
                 [[ -z "$target" ]] && continue
                 local rec=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$rec" ]]; then msg_err "Not found!"; ui_pause; continue; fi
+                if [[ -z "$rec" ]]; then echo -e "  ${C_RED}User not found!${C_RESET}"; ui_pause; continue; fi
                 IFS=: read -r u p exp lim bw _rest <<< "$rec"
                 draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
                 ui_pause
@@ -250,49 +293,43 @@ menu_users() {
                 draw_section "DELETE USER"
                 display_users_table
                 echo ""
-                read -p "  Username to delete: " target
+                read -p "  Enter username to delete: " target
                 [[ -z "$target" ]] && continue
                 local rec=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$rec" ]]; then msg_err "User not found!"; ui_pause; continue; fi
-                
+                if [[ -z "$rec" ]]; then echo -e "  ${C_RED}User not found!${C_RESET}"; ui_pause; continue; fi
+
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")
                 userdel -f "$target" 2>/dev/null
                 sed -i "/^$target:/d" "$DB_FILE"
                 sync_v2ray "$target" "" "$u_uuid" "delete"
-                msg_ok "User '$target' deleted successfully."
+                echo -e "  ${C_GREEN}✔ User '$target' deleted.${C_RESET}"
                 ui_pause
                 ;;
             5)
                 printf "\033[2J\033[3J\033[H"
-                echo -e "${C_RED}"
-                echo "=========================================="
-                echo "         DELETE ALL USERS CONFIRM         "
-                echo "=========================================="
-                echo -e "${C_RESET}"
+                draw_banner
+                draw_section "DELETE ALL USERS"
                 display_users_table
                 echo ""
-                read -p "Type 'CONFIRM' to delete ALL users: " all_confirm
-                if [ "$all_confirm" = "CONFIRM" ]; then
+                read -p "Type 'CONFIRM' to delete ALL accounts: " confirm
+                if [ "$confirm" = "CONFIRM" ]; then
                     while IFS=: read -r u _rest; do
                         [[ -n "$u" && ! "$u" =~ ^# ]] && userdel -f "$u" 2>/dev/null
                     done < "$DB_FILE"
                     > "$DB_FILE"
-                    
-                    # تصفير عملاء V2Ray
                     python3 -c '
 import json
 path = "/usr/local/etc/v2ray/config.json"
 try:
     with open(path, "r") as f: cfg = json.load(f)
-    for ib in cfg.get("inbounds", []):
-        ib["settings"]["clients"] = []
+    for ib in cfg.get("inbounds", []): ib["settings"]["clients"] = []
     with open(path, "w") as f: json.dump(cfg, f, indent=2)
 except Exception: pass
 ' 2>/dev/null || true
                     systemctl restart v2ray 2>/dev/null || true
-                    msg_ok "All users deleted and database cleared."
+                    echo -e "  ${C_GREEN}✔ All users deleted.${C_RESET}"
                 else
-                    msg_err "Action aborted."
+                    echo -e "  ${C_RED}Aborted.${C_RESET}"
                 fi
                 ui_pause
                 ;;
@@ -318,13 +355,13 @@ while true; do
         1) menu_users ;;
         2)
             systemctl restart ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt 2>/dev/null || true
-            msg_ok "Services refreshed."
+            echo -e "  ${C_GREEN}✔ Services refreshed.${C_RESET}"
             ui_pause
             ;;
         3)
             read -p "  Enter new domain: " ndom
             [[ -n "$ndom" ]] && echo "$ndom" > "$DOMAIN_FILE"
-            msg_ok "Domain updated."
+            echo -e "  ${C_GREEN}✔ Domain updated.${C_RESET}"
             ui_pause
             ;;
         4)
@@ -340,3 +377,7 @@ while true; do
         0) printf "\033[2J\033[3J\033[H"; exit 0 ;;
     esac
 done
+EOF
+
+chmod +x /usr/local/bin/menu
+menu

@@ -8,21 +8,16 @@ mkdir -p /root/udp
 mkdir -p /usr/local/bin
 rm -f /usr/local/bin/udp-custom
 
-# فحص معمارية السيرفر تلقائياً وتنزيل النسخة المطابقة
-ARCH=$(uname -m)
-if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    wget -q -O /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-arm64" 2>/dev/null || \
-    curl -sL -o /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-arm64" 2>/dev/null
-else
-    wget -q -O /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-amd64" 2>/dev/null || \
-    curl -sL -o /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-amd64" 2>/dev/null
-fi
+# استخدام رابط مباشر موثوق ومخصص لمعمارية aarch64 (ARM64)
+curl -L -o /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-arm64" 2>/dev/null || \
+wget -O /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-arm64" 2>/dev/null
 
 chmod +x /usr/local/bin/udp-custom
 
-# التحقق من صحة الملف الثنائي
-if [ ! -s /usr/local/bin/udp-custom ]; then
-    echo "Error: udp-custom binary download failed!"
+# الفحص التلقائي: إذا كان الملف نصياً أو تالفاً يتم حذفه لتجنب الخطأ
+if file /usr/local/bin/udp-custom | grep -q "text"; then
+    echo "Warning: Downloaded file is text, removing..."
+    rm -f /usr/local/bin/udp-custom
     exit 1
 fi
 

@@ -15,24 +15,30 @@ draw_user_card() {
     echo -e "${C_YELLOW}┌────────────────────────────────────────┐${C_RESET}"
     echo -e "${C_YELLOW}│${C_RESET}           ${C_BOLD}${C_CYAN}ACCOUNT CREDENTIALS${C_RESET}          ${C_YELLOW}│${C_RESET}"
     echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
-    printf "${C_YELLOW}│${C_RESET} USER  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$u"
-    printf "${C_YELLOW}│${C_RESET} PASS  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$p"
+    printf "${C_YELLOW}│${C_RESET} USER  : %-30s ${C_YELLOW}│${C_RESET}\n" "$u"
+    printf "${C_YELLOW}│${C_RESET} PASS  : %-30s ${C_YELLOW}│${C_RESET}\n" "$p"
     printf "${C_YELLOW}│${C_RESET} EXP   : %-30s ${C_YELLOW}│${C_RESET}\n" "$exp"
     printf "${C_YELLOW}│${C_RESET} LIMIT : %-30s ${C_YELLOW}│${C_RESET}\n" "$lim Devices | $([ "$bw" = "0" ] && echo "Unlim" || echo "$bw GB")"
     echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
     echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS Link:${C_RESET}                           ${C_YELLOW}│${C_RESET}"
+    
     for chunk in $(echo "$vless_link" | fold -w 38); do
-        printf "${C_YELLOW}│${C_RESET} ${C_GRAY}%-38s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$chunk"
+        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
     done
+    
     echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}Trojan Link:${C_RESET}                          ${C_YELLOW}│${C_YELLOW}"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}Trojan Link:${C_RESET}                          ${C_YELLOW}│${C_RESET}"
+    
     for chunk in $(echo "$trojan_link" | fold -w 38); do
-        printf "${C_YELLOW}│${C_RESET} ${C_GRAY}%-38s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$chunk"
+        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
     done
+    
     echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
     echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMess Link:${C_RESET}                           ${C_YELLOW}│${C_RESET}"
+    
     for chunk in $(echo "$vmess_link" | fold -w 38); do
-        printf "${C_YELLOW}│${C_RESET} ${C_GRAY}%-38s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$chunk"
+        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
     done
+    
     echo -e "${C_YELLOW}└────────────────────────────────────────┘${C_RESET}"
 }

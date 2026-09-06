@@ -7,16 +7,14 @@ pkill -9 -f udp-custom 2>/dev/null || true
 mkdir -p /root/udp
 mkdir -p /usr/local/bin
 
-# تحميل النسخة المستقرة لملف التشغيل حسب معمارية السيرفر
-ARCH=$(uname -m)
-if [ "$ARCH" = "x86_64" ]; then
-    wget -q -O /usr/local/bin/udp-custom "https://raw.githubusercontent.com/rull21/udp-custom/main/bin/udp-custom-linux-amd64" 2>/dev/null || \
-    wget -q -O /usr/local/bin/udp-custom "https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/bin/udp-custom" 2>/dev/null || true
-fi
+# تحميل الملف الثنائي لـ udp-custom برابط مباشر وموثوق
+rm -f /usr/local/bin/udp-custom
+wget -O /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-amd64" 2>/dev/null || \
+curl -L -o /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-amd64" 2>/dev/null
 
 chmod +x /usr/local/bin/udp-custom
 
-# إنشاء ملف التكوين الخاص بخدمة UDP Custom
+# إنشاء ملف التكوين
 cat << 'EOF' > /root/udp/config.json
 {
   "listen": ":7300",
@@ -28,10 +26,10 @@ cat << 'EOF' > /root/udp/config.json
 }
 EOF
 
-# إعداد خدمة systemd للتشغيل التلقائي والثبات
+# إعداد خدمة systemd
 cat << 'EOF' > /etc/systemd/system/udp-custom.service
 [Unit]
-Description=UDP Custom Server by Azdin
+Description=UDP Custom Service by Azdin
 After=network.target
 
 [Service]

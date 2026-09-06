@@ -12,6 +12,20 @@ C_YELLOW="\033[38;5;220m"
 C_RED="\033[38;5;196m"
 C_GRAY="\033[38;5;244m"
 
+# Fix and ensure authentication is active
+fix_auth_services() {
+    if [ -f /etc/default/dropbear ]; then
+        sed -i 's/NO_START=1/NO_START=0/' /etc/default/dropbear
+        systemctl restart dropbear 2>/dev/null || true
+    fi
+    if [ -f /etc/ssh/sshd_config ]; then
+        sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+    fi
+}
+fix_auth_services
+
 draw_section() {
     echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $1${C_RESET}"
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
@@ -69,9 +83,9 @@ draw_banner() {
     local s_dns="●"; systemctl is-active --quiet dnstt && s_dns="${C_GREEN}●${C_RESET}" || s_dns="${C_RED}●${C_RESET}"
 
     echo -e "${C_CYAN}┌────────────────────────────────────────┐${C_RESET}"
-    echo -e "${C_CYAN}│${C_RESET}       ${C_BOLD}${C_YELLOW}SSH-MANAGER BY-AZDIN${C_RESET}             ${C_CYAN}│${C_RESET}"
+    echo -e "${C_CYAN}│${C_RESET}        ${C_BOLD}${C_YELLOW}SSH-MANAGER BY-AZDIN${C_RESET}            ${C_CYAN}│${C_RESET}"
     echo -e "${C_CYAN}├────────────────────────────────────────┤${C_RESET}"
-    echo -e "${C_CYAN}│${C_RESET} ${C_BOLD}TASK MANAGER (LIVE)${C_RESET}                    ${C_CYAN}│${C_RESET}"
+    echo -e "${C_CYAN}│${C_RESET} ${C_BOLD}TASK MANAGER (LIVE)${C_RESET}                   ${C_CYAN}│${C_RESET}"
     printf "${C_CYAN}│${C_RESET} CPU: ${C_YELLOW}%-5s${C_RESET} | RAM: ${C_YELLOW}%s/%sMB (%s%%)${C_RESET}  ${C_CYAN}│${C_RESET}\n" "${cpu_load}%" "$mem_used" "$mem_total" "$mem_pct"
     printf "${C_CYAN}│${C_RESET} UP : ${C_GREEN}%-6s${C_RESET} | ONLINE: ${C_GREEN}%-2s${C_RESET} | USERS: ${C_GREEN}%-3s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$s_up" "$online_ssh" "$total_accs"
     echo -e "${C_CYAN}├────────────────────────────────────────┤${C_RESET}"
@@ -124,15 +138,34 @@ draw_user_card() {
     local vless_link="vless://$u_uuid@$dom:443?security=tls&encryption=none&type=ws&sni=$dom&path=%2Fvless#$u"
 
     echo ""
-    echo -e "${C_YELLOW}┌──[ ACCOUNT CREDENTIALS ]───────────────┐${C_RESET}"
-    printf "${C_YELLOW}│${C_RESET} USER  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$u"
-    printf "${C_YELLOW}│${C_RESET} PASS  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$p"
+    echo -e "${C_YELLOW}┌────────────────────────────────────────┐${C_RESET}"
+    echo -e "${C_YELLOW}│${C_RESET}           ${C_BOLD}${C_CYAN}ACCOUNT CREDENTIALS${C_RESET}          ${C_YELLOW}│${C_RESET}"
+    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
+    printf "${C_YELLOW}│${C_RESET} USER  : %-30s ${C_YELLOW}│${C_RESET}\n" "$u"
+    printf "${C_YELLOW}│${C_RESET} PASS  : %-30s ${C_YELLOW}│${C_RESET}\n" "$p"
     printf "${C_YELLOW}│${C_RESET} EXP   : %-30s ${C_YELLOW}│${C_RESET}\n" "$exp"
     printf "${C_YELLOW}│${C_RESET} LIMIT : %-30s ${C_YELLOW}│${C_RESET}\n" "$lim Devices | $([ "$bw" = "0" ] && echo "Unlim" || echo "$bw GB")"
-    echo -e "${C_YELLOW}├──[ QUICK CONFIG LINKS ]────────────────┤${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS:${C_RESET}\n$vless_link\n"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}TROJAN:${C_RESET}\n$trojan_link\n"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMESS:${C_RESET}\n$vmess_link"
+    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS Link:${C_RESET}                           ${C_YELLOW}│${C_RESET}"
+    
+    for chunk in $(echo "$vless_link" | fold -w 38); do
+        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
+    done
+    
+    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}Trojan Link:${C_RESET}                          ${C_YELLOW}│${C_RESET}"
+    
+    for chunk in $(echo "$trojan_link" | fold -w 38); do
+        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
+    done
+    
+    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMess Link:${C_RESET}                           ${C_YELLOW}│${C_RESET}"
+    
+    for chunk in $(echo "$vmess_link" | fold -w 38); do
+        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
+    done
+    
     echo -e "${C_YELLOW}└────────────────────────────────────────┘${C_RESET}"
 }
 fi
@@ -164,7 +197,6 @@ with open(path, "w") as f: json.dump(cfg, f, indent=2)
     systemctl restart v2ray 2>/dev/null || true
 }
 
-# --- مركز التحكم بالبروتوكولات ---
 menu_protocols() {
     while true; do
         draw_banner
@@ -284,7 +316,7 @@ update_script() {
 purge_everything() {
     printf "\033[2J\033[3J\033[H"
     echo -e "${C_RED}=========================================="
-    echo "       COMPLETE UNINSTALL & PURGE         "
+    echo "        COMPLETE UNINSTALL & PURGE         "
     echo -e "==========================================${C_RESET}"
     read -p "Type 'DELETE' to erase everything: " confirm
     if [ "$confirm" != "DELETE" ]; then
@@ -362,6 +394,7 @@ menu_users() {
                 bw=${bw:-0}
 
                 echo "$u:$p" | chpasswd
+                usermod -p "$(openssl passwd -1 "$p")" "$u" 2>/dev/null || true
                 usermod -U "$u" 2>/dev/null
                 echo "$u:$p:$exp:$lim:$bw:" >> "$DB_FILE"
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
@@ -400,6 +433,7 @@ menu_users() {
                 fi
 
                 echo "$target:$np" | chpasswd
+                usermod -p "$(openssl passwd -1 "$np")" "$target" 2>/dev/null || true
                 sed -i "/^$target:/d" "$DB_FILE"
                 echo "$target:$np:$nexp:$nlim:$nbw:" >> "$DB_FILE"
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")

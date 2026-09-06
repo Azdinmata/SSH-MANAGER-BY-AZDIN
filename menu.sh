@@ -5,9 +5,9 @@ clear
 UI_DIR="/etc/ssh-manager/ui"
 BASE_UI_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/ui"
 
+mkdir -p "$UI_DIR"
 for comp in colors banner buttons cards; do
     if [ ! -f "$UI_DIR/$comp.sh" ]; then
-        mkdir -p "$UI_DIR"
         curl -fsSL -o "$UI_DIR/$comp.sh" "$BASE_UI_URL/$comp.sh" 2>/dev/null
         chmod +x "$UI_DIR/$comp.sh" 2>/dev/null
     fi
@@ -44,32 +44,88 @@ for ib in cfg.get("inbounds", []):
     ib["settings"]["clients"] = clients
 
 with open(path, "w") as f: json.dump(cfg, f, indent=2)
-' "$u" "$p" "$uuid" "$action"
+' "$u" "$p" "$uuid" "$action" 2>/dev/null || true
     systemctl restart v2ray 2>/dev/null || true
+}
+
+# دالة الحذف الكامل لكل شيء
+purge_everything() {
+    clear
+    echo -e "${C_RED}"
+    echo "=========================================="
+    echo "       COMPLETE UNINSTALL & PURGE         "
+    echo "=========================================="
+    echo -e "${C_RESET}"
+    read -p "Type 'DELETE' to erase everything: " confirm
+    if [ "$confirm" != "DELETE" ]; then
+        msg_err "Uninstall canceled."
+        ui_pause
+        return
+    fi
+
+    echo -e "\n${C_RED}[*] Stopping and disabling all services...${C_RESET}"
+    systemctl stop nginx apache2 v2ray badvpn udp-custom dnstt ws-dropbear 2>/dev/null
+    systemctl disable nginx apache2 v2ray badvpn udp-custom dnstt ws-dropbear 2>/dev/null
+
+    pkill -9 -f badvpn 2>/dev/null
+    pkill -9 -f udp-custom 2>/dev/null
+    pkill -9 -f dnstt-server 2>/dev/null
+    pkill -9 -f v2ray 2>/dev/null
+    pkill -9 -f ws-dropbear 2>/dev/null
+    fuser -k 80/tcp 443/tcp 53/udp 7300/udp 10015/tcp 2>/dev/null
+
+    echo -e "${C_RED}[*] Clearing Cron Jobs...${C_RESET}"
+    crontab -r 2>/dev/null || true
+
+    echo -e "${C_RED}[*] Deleting all created users...${C_RESET}"
+    if [ -f "$DB_FILE" ]; then
+        while IFS=: read -r u _rest; do
+            [[ -n "$u" && ! "$u" =~ ^# ]] && userdel -f "$u" 2>/dev/null
+        done < "$DB_FILE"
+    fi
+
+    echo -e "${C_RED}[*] Purging system packages...${C_RESET}"
+    apt-get purge -y nginx nginx-common v2ray certbot python3-certbot-nginx 2>/dev/null
+    apt-get autoremove -y --purge 2>/dev/null
+
+    echo -e "${C_RED}[*] Erasing directories, binaries & services...${C_RESET}"
+    rm -rf /etc/ssh-manager /usr/local/etc/v2ray /etc/v2ray /root/udp /etc/nginx /etc/letsencrypt
+    rm -f /usr/local/bin/ssh-manager /usr/local/bin/menu* /bin/menu /usr/bin/menu
+    rm -f /usr/local/bin/badvpn-udpgw /usr/local/bin/udp-custom /usr/local/bin/dnstt-server /usr/local/bin/ws-dropbear /usr/local/bin/session-watchdog
+    rm -f /etc/systemd/system/badvpn.service /etc/systemd/system/udp-custom.service /etc/systemd/system/dnstt.service /etc/systemd/system/ws-dropbear.service
+    systemctl daemon-reload
+
+    unalias menu 2>/dev/null || true
+    sed -i '/menu/d' ~/.bashrc /root/.bashrc /etc/bash.bashrc /etc/profile /etc/environment 2>/dev/null || true
+    hash -r
+
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
+    echo -e "\n${C_GREEN}✔ SSH-MANAGER has been completely wiped from your server!${C_RESET}\n"
+    exit 0
 }
 
 menu_users() {
     while true; do
         draw_banner
-        draw_category_header "USER MANAGEMENT"
-        render_btn "1" "Create Unified Account" "(Custom / Lifetime / Limit / Quota)"
-        render_btn "2" "Edit Existing Account"  "(Password, Expiry, Devices)"
-        render_btn "3" "List All Users"         "(Status, Limits, Details)"
-        render_btn "4" "Get Account Credentials" "(Extract Links & Configs)"
-        render_btn "5" "Delete Account"         "(Purge from all protocols)"
-        render_back_btn "Back to Main Dashboard"
+        draw_section "USER MANAGEMENT"
+        render_btn "1" "Create Account (Lifetime/Custom)"
+        render_btn "2" "Edit Account (Pass/Limit/Expiry)"
+        render_btn "3" "List All Accounts"
+        render_btn "4" "Get Account Credentials Card"
+        render_btn "5" "Delete User Account"
+        render_btn "0" "Back to Dashboard"
         
         echo ""
-        read -p "  Select action: " opt
+        read -p "  Select: " opt
         case "$opt" in
             1)
                 echo ""
-                read -p "  Enter Username: " u
+                read -p "  Username: " u
                 [[ -z "$u" ]] && continue
-                if id "$u" &>/dev/null; then msg_error "User already exists!"; ui_pause; continue; fi
-                read -p "  Enter Password: " p
+                if id "$u" &>/dev/null; then msg_err "User exists!"; ui_pause; continue; fi
+                read -p "  Password: " p
                 [[ -z "$p" ]] && continue
-                read -p "  Duration in days (0 for Lifetime) [30]: " d
+                read -p "  Days (0 for Lifetime) [30]: " d
                 d=${d:-30}
                 if [[ "$d" == "0" || "${d,,}" == "never" ]]; then
                     exp="Never"
@@ -79,223 +135,80 @@ menu_users() {
                     exp=$(date -d "+$d days" +%Y-%m-%d)
                     useradd -M -s /bin/false -e "$exp" "$u"
                 fi
-                read -p "  Concurrency limit (Default: 2): " lim
+                read -p "  Limit Devices [2]: " lim
                 lim=${lim:-2}
-                read -p "  Bandwidth limit GB (0 = unlimited) [0]: " bw
+                read -p "  Bandwidth GB (0=Unlimited) [0]: " bw
                 bw=${bw:-0}
 
                 echo "$u:$p" | chpasswd
                 usermod -U "$u" 2>/dev/null
                 echo "$u:$p:$exp:$lim:$bw:" >> "$DB_FILE"
 
-                local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))")
+                local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
                 sync_v2ray "$u" "$p" "$u_uuid" "add"
 
-                msg_success "Account generated successfully!"
                 draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
                 ui_pause
                 ;;
             2)
-                echo ""
-                read -p "  Enter Username to edit: " target
-                local record=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$record" ]]; then msg_error "User not found!"; ui_pause; continue; fi
-                IFS=: read -r cur_u cur_p cur_exp cur_lim cur_bw _rest <<< "$record"
-                
-                read -p "  New Password [Enter to keep]: " np
+                read -p "  Username to edit: " target
+                local rec=$(grep "^$target:" "$DB_FILE")
+                if [[ -z "$rec" ]]; then msg_err "User not found!"; ui_pause; continue; fi
+                IFS=: read -r cur_u cur_p cur_exp cur_lim cur_bw _rest <<< "$rec"
+
+                read -p "  New Pass [Enter=Keep]: " np
                 np=${np:-$cur_p}
-                read -p "  New Concurrency Limit [Enter to keep]: " nlim
+                read -p "  New Limit [Enter=Keep]: " nlim
                 nlim=${nlim:-$cur_lim}
-                read -p "  New Bandwidth GB [Enter to keep]: " nbw
+                read -p "  New Bandwidth GB [Enter=Keep]: " nbw
                 nbw=${nbw:-$cur_bw}
-                read -p "  New Duration in days (0 for Lifetime): " nd
-                
+                read -p "  Days (0=Lifetime) [Enter=Keep]: " nd
+
                 nexp="$cur_exp"
                 if [[ "$nd" == "0" || "${nd,,}" == "never" ]]; then
-                    nexp="Never"
-                    chage -E -1 "$target"
+                    nexp="Never"; chage -E -1 "$target"
                 elif [[ -n "$nd" && "$nd" =~ ^[0-9]+$ ]]; then
-                    nexp=$(date -d "+$nd days" +%Y-%m-%d)
-                    usermod -e "$nexp" "$target"
+                    nexp=$(date -d "+$nd days" +%Y-%m-%d); usermod -e "$nexp" "$target"
                 fi
 
                 echo "$target:$np" | chpasswd
                 sed -i "/^$target:/d" "$DB_FILE"
                 echo "$target:$np:$nexp:$nlim:$nbw:" >> "$DB_FILE"
 
-                local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))")
+                local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")
                 sync_v2ray "$target" "$np" "$u_uuid" "update"
 
-                msg_success "Account updated successfully."
+                msg_ok "Account updated."
                 draw_user_card "$target" "$np" "$nexp" "$nlim" "$nbw"
                 ui_pause
                 ;;
             3)
                 echo ""
-                printf "  ${C_CYAN}%-16s | %-16s | %-12s | %-8s | %-10s${C_RESET}\n" "USERNAME" "PASSWORD" "EXPIRY" "LIMIT" "QUOTA"
-                draw_divider
-                while IFS=: read -r u p exp lim bw _rest; do
+                printf "  ${C_CYAN}%-12s | %-10s | %-8s${C_RESET}\n" "USER" "EXPIRY" "LIMIT"
+                echo "  ──────────────────────────────────────"
+                while IFS=: read -r u p exp lim bw _; do
                     [[ -z "$u" || "$u" =~ ^# ]] && continue
-                    printf "  %-16s | %-16s | %-12s | %-8s | %-10s\n" "$u" "$p" "$exp" "$lim" "$([ "$bw" == "0" ] && echo "Unlimited" || echo "$bw GB")"
+                    printf "  %-12s | %-10s | %-8s\n" "$u" "$exp" "$lim Dev"
                 done < "$DB_FILE"
                 ui_pause
                 ;;
             4)
-                echo ""
-                read -p "  Enter Username: " target
-                local record=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$record" ]]; then msg_error "User not found!"; ui_pause; continue; fi
-                IFS=: read -r u p exp lim bw _rest <<< "$record"
+                read -p "  Username: " target
+                local rec=$(grep "^$target:" "$DB_FILE")
+                if [[ -z "$rec" ]]; then msg_err "Not found!"; ui_pause; continue; fi
+                IFS=: read -r u p exp lim bw _rest <<< "$rec"
                 draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
                 ui_pause
                 ;;
             5)
-                echo ""
-                read -p "  Enter Username to delete: " target
-                local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))")
+                read -p "  Username to delete: " target
+                local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")
                 userdel -f "$target" 2>/dev/null
                 sed -i "/^$target:/d" "$DB_FILE"
                 sync_v2ray "$target" "" "$u_uuid" "delete"
-                msg_success "User purged completely."
+                msg_ok "User deleted."
                 ui_pause
                 ;;
-            0) break ;;
-        esac
-    done
-}
-
-menu_protocols() {
-    while true; do
-        draw_banner
-        draw_category_header "CORE NETWORK & PROTOCOLS"
-        render_btn "1" "Core Services Health" "(Real-Time Status)"
-        render_btn "2" "Reboot All Protocols" "(SSH, V2Ray, Nginx, WS)"
-        render_btn "3" "BadVPN 7300 Gateway"  "(Status / Diagnostics)"
-        render_btn "4" "UDP Custom Service"   "(Status / State)"
-        render_btn "5" "SlowDNS (DNSTT)"      "(Status & Public Key)"
-        render_back_btn "Back to Main Dashboard"
-        
-        echo ""
-        read -p "  Action: " opt
-        case "$opt" in
-            1)
-                echo ""
-                printf "  %-25s : " "SSH Daemon (Port 22)"
-                systemctl is-active --quiet ssh && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                printf "  %-25s : " "WS Bridge (Port 10015)"
-                systemctl is-active --quiet ws-dropbear && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                printf "  %-25s : " "V2Ray Multi-Engine"
-                systemctl is-active --quiet v2ray && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                printf "  %-25s : " "Nginx Edge Proxy (443)"
-                systemctl is-active --quiet nginx && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                printf "  %-25s : " "BadVPN UDP Gateway"
-                systemctl is-active --quiet badvpn && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                printf "  %-25s : " "UDP Custom Core"
-                systemctl is-active --quiet udp-custom && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                printf "  %-25s : " "DNSTT SlowDNS (Port 53)"
-                systemctl is-active --quiet dnstt && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                ui_pause
-                ;;
-            2)
-                systemctl restart ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt 2>/dev/null || true
-                msg_success "All network protocol services restarted."
-                ui_pause
-                ;;
-            3)
-                systemctl status badvpn --no-pager | head -n 12
-                ui_pause
-                ;;
-            4)
-                systemctl status udp-custom --no-pager | head -n 12
-                ui_pause
-                ;;
-            5)
-                local pub_key=$([ -f "/etc/ssh-manager/dnstt/server.pub" ] && cat "/etc/ssh-manager/dnstt/server.pub" || echo "Not_Found")
-                msg_info "DNSTT Public Key: $pub_key"
-                systemctl status dnstt --no-pager | head -n 12
-                ui_pause
-                ;;
-            0) break ;;
-        esac
-    done
-}
-
-uninstall_all() {
-    echo ""
-    echo -e "${C_RED}========================================================"
-    echo -e "   WARNING: THIS WILL COMPLETELY PURGE SSH-MANAGER!     "
-    echo -e "========================================================${C_RESET}"
-    read -p "Are you absolutely sure you want to uninstall? (y/N): " confirm
-    if [[ "${confirm,,}" != "y" ]]; then
-        msg_info "Uninstall canceled."
-        ui_pause
-        return
-    fi
-
-    echo -e "\n${C_RED}[*] Stopping services...${C_RESET}"
-    systemctl stop nginx v2ray badvpn udp-custom dnstt ws-dropbear haproxy 2>/dev/null || true
-    systemctl disable nginx v2ray badvpn udp-custom dnstt ws-dropbear haproxy 2>/dev/null || true
-
-    pkill -9 -f badvpn 2>/dev/null || true
-    pkill -9 -f udp-custom 2>/dev/null || true
-    pkill -9 -f dnstt-server 2>/dev/null || true
-    pkill -9 -f v2ray 2>/dev/null || true
-    pkill -9 -f ws-dropbear 2>/dev/null || true
-
-    crontab -r 2>/dev/null || true
-
-    if [ -f "$DB_FILE" ]; then
-        while IFS=: read -r u _rest; do
-            [[ -n "$u" && ! "$u" =~ ^# ]] && userdel -f "$u" 2>/dev/null || true
-        done < "$DB_FILE"
-    fi
-
-    apt-get purge -y nginx v2ray certbot python3-certbot-nginx 2>/dev/null || true
-    apt-get autoremove -y --purge 2>/dev/null || true
-
-    rm -rf /etc/ssh-manager /usr/local/etc/v2ray /etc/v2ray /root/udp /etc/nginx /etc/letsencrypt
-    rm -f /usr/local/bin/ssh-manager /usr/local/bin/menu* /bin/menu /usr/local/bin/badvpn-udpgw /usr/local/bin/udp-custom /usr/local/bin/dnstt-server /usr/local/bin/ws-dropbear /usr/local/bin/session-watchdog
-    rm -f /etc/systemd/system/badvpn.service /etc/systemd/system/udp-custom.service /etc/systemd/system/dnstt.service /etc/systemd/system/ws-dropbear.service
-    systemctl daemon-reload
-
-    msg_success "SSH-MANAGER has been completely removed from system."
-    exit 0
-}
-
-menu_settings() {
-    while true; do
-        draw_banner
-        draw_category_header "SYSTEM & ADVANCED"
-        render_btn "1" "Update Pointing Domain" "(Reconfigure Host)"
-        render_btn "2" "Update NS Domain"       "(SlowDNS Nameserver)"
-        render_btn "3" "Renew SSL Certificate" "(Let's Encrypt / Certbot)"
-        render_btn "4" "Purge & Uninstall All"  "(Delete All Files & Reset)"
-        render_back_btn "Back to Main Dashboard"
-        
-        echo ""
-        read -p "  Action: " opt
-        case "$opt" in
-            1)
-                read -p "  Enter new domain: " ndom
-                [[ -n "$ndom" ]] && echo "$ndom" > "$DOMAIN_FILE"
-                msg_success "Domain updated."
-                ui_pause
-                ;;
-            2)
-                read -p "  Enter new NS domain: " nns
-                [[ -n "$nns" ]] && echo "$nns" > "$NS_FILE"
-                systemctl restart dnstt 2>/dev/null || true
-                msg_success "NS updated."
-                ui_pause
-                ;;
-            3)
-                systemctl stop nginx
-                certbot renew --quiet
-                systemctl start nginx
-                msg_success "SSL Certificate renewed."
-                ui_pause
-                ;;
-            4) uninstall_all ;;
             0) break ;;
         esac
     done
@@ -303,27 +216,38 @@ menu_settings() {
 
 while true; do
     draw_banner
-    draw_category_header "MAIN CONTROL DASHBOARD"
-    render_btn "1" "User & Account Control"  "(Add, Lifetime, Quota, Limits)"
-    render_btn "2" "Protocol & Server Suite" "(SSH-WS, Trojan, VMess, UDP, DNSTT)"
-    render_btn "3" "System & Security Tools" "(Domain, SSL, Uninstall)"
-    render_btn "4" "Active Sessions Monitor" "(Live Online SSH Connections)"
-    render_back_btn "Exit Interface"
-    
+    draw_section "MAIN CONTROL HUB"
+    render_btn "1" "User Account Manager"
+    render_btn "2" "Restart All Services"
+    render_btn "3" "Change Domain"
+    render_btn "4" "Active Live Sessions"
+    render_danger_btn "9" "UNINSTALL & PURGE ALL"
+    render_btn "0" "Exit"
+
     echo ""
-    read -p "  Select [0-4]: " mc
+    read -p "  Select [0-9]: " mc
     case "$mc" in
         1) menu_users ;;
-        2) menu_protocols ;;
-        3) menu_settings ;;
-        4)
-            draw_banner
-            draw_category_header "CURRENT LIVE SESSIONS"
-            who
-            echo ""
-            ss -tp '( sport = :22 or sport = :443 )' | head -n 15
+        2)
+            systemctl restart ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt 2>/dev/null || true
+            msg_ok "Services refreshed."
             ui_pause
             ;;
+        3)
+            read -p "  Enter new domain: " ndom
+            [[ -n "$ndom" ]] && echo "$ndom" > "$DOMAIN_FILE"
+            msg_ok "Domain updated."
+            ui_pause
+            ;;
+        4)
+            draw_banner
+            draw_section "LIVE SESSIONS"
+            who
+            echo ""
+            ss -tp '( sport = :22 or sport = :443 )' | head -n 10
+            ui_pause
+            ;;
+        9) purge_everything ;;
         0) clear; exit 0 ;;
     esac
 done

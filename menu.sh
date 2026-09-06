@@ -1,86 +1,23 @@
-cat << 'EOF' > /usr/local/bin/menu
 #!/bin/bash
 export LC_ALL=C
+clear
+
+UI_DIR="/etc/ssh-manager/ui"
+BASE_UI_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/ui"
+
+mkdir -p "$UI_DIR"
+for comp in colors banner buttons cards; do
+    if [ ! -f "$UI_DIR/$comp.sh" ]; then
+        curl -fsSL -o "$UI_DIR/$comp.sh" "$BASE_UI_URL/$comp.sh" 2>/dev/null
+        chmod +x "$UI_DIR/$comp.sh" 2>/dev/null
+    fi
+    [ -f "$UI_DIR/$comp.sh" ] && source "$UI_DIR/$comp.sh"
+done
 
 DB_FILE="/etc/ssh-manager/users.db"
 DOMAIN_FILE="/etc/ssh-manager/domain.conf"
-NS_FILE="/etc/ssh-manager/nsdomain.conf"
 mkdir -p /etc/ssh-manager
 touch "$DB_FILE"
-
-C_RESET="\033[0m"
-C_BOLD="\033[1m"
-C_CYAN="\033[38;5;51m"
-C_BLUE="\033[38;5;39m"
-C_PURPLE="\033[38;5;141m"
-C_GREEN="\033[38;5;48m"
-C_YELLOW="\033[38;5;220m"
-C_RED="\033[38;5;196m"
-C_GRAY="\033[38;5;244m"
-
-draw_banner() {
-    printf "\033[2J\033[3J\033[H"
-    local cur_dom="127.0.0.1"
-    [ -f "$DOMAIN_FILE" ] && cur_dom=$(cat "$DOMAIN_FILE")
-
-    local cpu_load=$(top -bn1 2>/dev/null | awk -F',' '/Cpu\(s\)/ {print $1}' | awk '{print $2}' || echo "0.0")
-    local mem_used=$(free -m 2>/dev/null | awk '/Mem:/ {print $3}' || echo "0")
-    local mem_total=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}' || echo "1")
-    local mem_pct=$(( mem_used * 100 / (mem_total > 0 ? mem_total : 1) ))
-    local s_up=$(uptime -p 2>/dev/null | sed -e 's/up //' -e 's/ hours\?/h/' -e 's/ minutes\?/m/' || echo "N/A")
-    local online_ssh=$(who 2>/dev/null | wc -l)
-    local total_accs=$(grep -c . "$DB_FILE" 2>/dev/null || echo "0")
-
-    local s_ssh="●"; systemctl is-active --quiet ssh && s_ssh="${C_GREEN}●${C_RESET}" || s_ssh="${C_RED}●${C_RESET}"
-    local s_ws="●"; systemctl is-active --quiet ws-dropbear && s_ws="${C_GREEN}●${C_RESET}" || s_ws="${C_RED}●${C_RESET}"
-    local s_v2r="●"; systemctl is-active --quiet v2ray && s_v2r="${C_GREEN}●${C_RESET}" || s_v2r="${C_RED}●${C_RESET}"
-    local s_ngx="●"; systemctl is-active --quiet nginx && s_ngx="${C_GREEN}●${C_RESET}" || s_ngx="${C_RED}●${C_RESET}"
-
-    echo -e "${C_CYAN}┌────────────────────────────────────────┐${C_RESET}"
-    echo -e "${C_CYAN}│${C_RESET}       ${C_BOLD}${C_YELLOW}SSH-MANAGER BY-AZDIN${C_RESET}             ${C_CYAN}│${C_RESET}"
-    echo -e "${C_CYAN}├────────────────────────────────────────┤${C_RESET}"
-    echo -e "${C_CYAN}│${C_RESET} ${C_BOLD}TASK MANAGER (LIVE)${C_RESET}                    ${C_CYAN}│${C_RESET}"
-    printf "${C_CYAN}│${C_RESET} CPU: ${C_YELLOW}%-5s${C_RESET} | RAM: ${C_YELLOW}%s/%sMB (%s%%)${C_RESET}  ${C_CYAN}│${C_RESET}\n" "${cpu_load}%" "$mem_used" "$mem_total" "$mem_pct"
-    printf "${C_CYAN}│${C_RESET} UP : ${C_GREEN}%-6s${C_RESET} | ONLINE: ${C_GREEN}%-2s${C_RESET} | USERS: ${C_GREEN}%-3s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$s_up" "$online_ssh" "$total_accs"
-    echo -e "${C_CYAN}├────────────────────────────────────────┤${C_RESET}"
-    printf "${C_CYAN}│${C_RESET} SRV: SSH:%b WS:%b V2R:%b NGX:%b            ${C_CYAN}│${C_RESET}\n" "$s_ssh" "$s_ws" "$s_v2r" "$s_ngx"
-    printf "${C_CYAN}│${C_RESET} DOM: ${C_PURPLE}%-33s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$cur_dom"
-    echo -e "${C_CYAN}└────────────────────────────────────────┘${C_RESET}"
-}
-
-draw_section() {
-    echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $1${C_RESET}"
-    echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
-}
-
-render_btn() {
-    printf "  ${C_CYAN}[ ${C_BOLD}%s${C_RESET}${C_CYAN} ]${C_RESET}  ${C_BOLD}%s${C_RESET}\n" "$1" "$2"
-}
-
-render_danger_btn() {
-    printf "  ${C_RED}[ ${C_BOLD}%s${C_RESET}${C_RED} ]  %s${C_RESET}\n" "$1" "$2"
-}
-
-ui_pause() {
-    echo ""
-    read -p "  [Press Enter to continue]" _
-    printf "\033[2J\033[3J\033[H"
-}
-
-display_users_table() {
-    echo -e "  ${C_BOLD}${C_YELLOW}Active Users Database:${C_RESET}"
-    if [ ! -s "$DB_FILE" ]; then
-        echo -e "  ${C_GRAY}(No active accounts found)${C_RESET}"
-    else
-        printf "  ${C_CYAN}%-12s | %-10s | %-8s | %-6s${C_RESET}\n" "USER" "EXPIRY" "LIMIT" "PASS"
-        echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
-        while IFS=: read -r u p exp lim bw _; do
-            [[ -z "$u" || "$u" =~ ^# ]] && continue
-            printf "  %-12s | %-10s | %-8s | %-6s\n" "$u" "$exp" "$lim Dev" "$p"
-        done < "$DB_FILE"
-    fi
-    echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
-}
 
 sync_v2ray() {
     local u="$1" p="$2" uuid="$3" action="$4"
@@ -107,29 +44,6 @@ for ib in cfg.get("inbounds", []):
 with open(path, "w") as f: json.dump(cfg, f, indent=2)
 ' "$u" "$p" "$uuid" "$action" 2>/dev/null || true
     systemctl restart v2ray 2>/dev/null || true
-}
-
-draw_user_card() {
-    local u="$1" p="$2" exp="$3" lim="$4" bw="$5"
-    local dom=$(cat "$DOMAIN_FILE" 2>/dev/null || echo "127.0.0.1")
-    local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
-
-    local vmess_json="{\"v\":\"2\",\"ps\":\"$u\",\"add\":\"$dom\",\"port\":\"443\",\"id\":\"$u_uuid\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$dom\",\"path\":\"/v2ray\",\"tls\":\"tls\",\"sni\":\"$dom\"}"
-    local vmess_link="vmess://$(echo -n "$vmess_json" | base64 -w 0 2>/dev/null || true)"
-    local trojan_link="trojan://$p@$dom:443?security=tls&sni=$dom&type=ws&path=%2Ftrojan#$u"
-    local vless_link="vless://$u_uuid@$dom:443?security=tls&encryption=none&type=ws&sni=$dom&path=%2Fvless#$u"
-
-    echo ""
-    echo -e "${C_YELLOW}┌──[ ACCOUNT CREDENTIALS ]───────────────┐${C_RESET}"
-    printf "${C_YELLOW}│${C_RESET} USER  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$u"
-    printf "${C_YELLOW}│${C_RESET} PASS  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$p"
-    printf "${C_YELLOW}│${C_RESET} EXP   : %-30s ${C_YELLOW}│${C_RESET}\n" "$exp"
-    printf "${C_YELLOW}│${C_RESET} LIMIT : %-30s ${C_YELLOW}│${C_RESET}\n" "$lim Devices | $([ "$bw" = "0" ] && echo "Unlim" || echo "$bw GB")"
-    echo -e "${C_YELLOW}├──[ QUICK CONFIG LINKS ]────────────────┤${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS:${C_RESET}\n$vless_link\n"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}TROJAN:${C_RESET}\n$trojan_link\n"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMESS:${C_RESET}\n$vmess_link"
-    echo -e "${C_YELLOW}└────────────────────────────────────────┘${C_RESET}"
 }
 
 update_script() {
@@ -191,12 +105,10 @@ menu_users() {
     while true; do
         draw_banner
         draw_section "USER MANAGEMENT"
-        display_users_table
-        echo ""
         render_btn "1" "Create New Account"
-        render_btn "2" "Edit User (Pass/Limit/Exp)"
-        render_btn "3" "Get User Credentials Card"
-        render_btn "4" "Delete Single User"
+        render_btn "2" "Edit User (By Number)"
+        render_btn "3" "Get User Credentials (By Number)"
+        render_btn "4" "Delete Single User (By Number)"
         render_danger_btn "5" "Delete ALL Users"
         render_btn "0" "Back to Dashboard"
 
@@ -240,12 +152,14 @@ menu_users() {
                 printf "\033[2J\033[3J\033[H"
                 draw_banner
                 draw_section "EDIT ACCOUNT"
-                display_users_table
+                select_user_by_number || { ui_pause; continue; }
                 echo ""
-                read -p "  Enter username to edit: " target
-                [[ -z "$target" ]] && continue
+                read -p "  Select user number: " unum
+                [[ -z "$unum" || ! "$unum" =~ ^[0-9]+$ ]] && continue
+                local target="${USERS_LIST[$((unum-1))]}"
+                if [[ -z "$target" ]]; then echo -e "  ${C_RED}Invalid selection!${C_RESET}"; ui_pause; continue; fi
+
                 local rec=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$rec" ]]; then echo -e "  ${C_RED}User not found!${C_RESET}"; ui_pause; continue; fi
                 IFS=: read -r cur_u cur_p cur_exp cur_lim cur_bw _rest <<< "$rec"
 
                 read -p "  New Pass [Enter=Keep]: " np
@@ -277,13 +191,13 @@ menu_users() {
                 printf "\033[2J\033[3J\033[H"
                 draw_banner
                 draw_section "GET CREDENTIALS"
-                display_users_table
+                select_user_by_number || { ui_pause; continue; }
                 echo ""
-                read -p "  Enter username: " target
-                [[ -z "$target" ]] && continue
-                local rec=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$rec" ]]; then echo -e "  ${C_RED}User not found!${C_RESET}"; ui_pause; continue; fi
-                IFS=: read -r u p exp lim bw _rest <<< "$rec"
+                read -p "  Select user number: " unum
+                [[ -z "$unum" || ! "$unum" =~ ^[0-9]+$ ]] && continue
+                local target="${USERS_LIST[$((unum-1))]}"
+                if [[ -z "$target" ]]; then echo -e "  ${C_RED}Invalid selection!${C_RESET}"; ui_pause; continue; fi
+                IFS=: read -r u p exp lim bw _rest <<< "$(grep "^$target:" "$DB_FILE")"
                 draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
                 ui_pause
                 ;;
@@ -291,12 +205,12 @@ menu_users() {
                 printf "\033[2J\033[3J\033[H"
                 draw_banner
                 draw_section "DELETE USER"
-                display_users_table
+                select_user_by_number || { ui_pause; continue; }
                 echo ""
-                read -p "  Enter username to delete: " target
-                [[ -z "$target" ]] && continue
-                local rec=$(grep "^$target:" "$DB_FILE")
-                if [[ -z "$rec" ]]; then echo -e "  ${C_RED}User not found!${C_RESET}"; ui_pause; continue; fi
+                read -p "  Select user number to delete: " unum
+                [[ -z "$unum" || ! "$unum" =~ ^[0-9]+$ ]] && continue
+                local target="${USERS_LIST[$((unum-1))]}"
+                if [[ -z "$target" ]]; then echo -e "  ${C_RED}Invalid selection!${C_RESET}"; ui_pause; continue; fi
 
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")
                 userdel -f "$target" 2>/dev/null
@@ -309,7 +223,7 @@ menu_users() {
                 printf "\033[2J\033[3J\033[H"
                 draw_banner
                 draw_section "DELETE ALL USERS"
-                display_users_table
+                select_user_by_number
                 echo ""
                 read -p "Type 'CONFIRM' to delete ALL accounts: " confirm
                 if [ "$confirm" = "CONFIRM" ]; then
@@ -377,7 +291,3 @@ while true; do
         0) printf "\033[2J\033[3J\033[H"; exit 0 ;;
     esac
 done
-EOF
-
-chmod +x /usr/local/bin/menu
-menu

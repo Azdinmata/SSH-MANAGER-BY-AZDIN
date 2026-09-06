@@ -48,9 +48,29 @@ with open(path, "w") as f: json.dump(cfg, f, indent=2)
     systemctl restart v2ray 2>/dev/null || true
 }
 
-# دالة الحذف الكامل لكل شيء
+update_script() {
+    printf "\033[2J\033[3J\033[H"
+    echo -e "\n  ${C_CYAN}[*] Fetching latest updates from GitHub...${C_RESET}"
+    
+    local REPO_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main"
+    
+    for comp in colors banner buttons cards; do
+        curl -fsSL -o "/etc/ssh-manager/ui/$comp.sh" "$REPO_URL/ui/$comp.sh" 2>/dev/null || true
+        chmod +x "/etc/ssh-manager/ui/$comp.sh" 2>/dev/null || true
+    done
+    
+    curl -fsSL -o /usr/local/bin/ssh-manager "$REPO_URL/menu.sh" 2>/dev/null || true
+    chmod +x /usr/local/bin/ssh-manager
+    ln -sf /usr/local/bin/ssh-manager /usr/local/bin/menu
+    ln -sf /usr/local/bin/ssh-manager /bin/menu
+    
+    msg_ok "Script and UI updated successfully!"
+    ui_pause
+    exec menu
+}
+
 purge_everything() {
-    clear
+    printf "\033[2J\033[3J\033[H"
     echo -e "${C_RED}"
     echo "=========================================="
     echo "       COMPLETE UNINSTALL & PURGE         "
@@ -221,6 +241,7 @@ while true; do
     render_btn "2" "Restart All Services"
     render_btn "3" "Change Domain"
     render_btn "4" "Active Live Sessions"
+    render_btn "8" "Update Script"
     render_danger_btn "9" "UNINSTALL & PURGE ALL"
     render_btn "0" "Exit"
 
@@ -247,7 +268,8 @@ while true; do
             ss -tp '( sport = :22 or sport = :443 )' | head -n 10
             ui_pause
             ;;
+        8) update_script ;;
         9) purge_everything ;;
-        0) clear; exit 0 ;;
+        0) printf "\033[2J\033[3J\033[H"; exit 0 ;;
     esac
 done

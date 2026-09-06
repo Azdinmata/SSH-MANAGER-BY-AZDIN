@@ -2,33 +2,16 @@
 export LC_ALL=C
 
 draw_section() {
-    local title="$1"
-    echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $title${C_RESET}"
-    echo -e "  ${C_GRAY}──────────────────────────────────────${C_RESET}"
-}
-
-render_btn() {
-    local key="$1"
-    local title="$2"
-    printf "  ${C_CYAN}[ ${C_BOLD}%s${C_RESET}${C_CYAN} ]${C_RE#!/bin/bash
-export LC_ALL=C
-
-draw_section() {
-    local title="$1"
-    echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $title${C_RESET}"
+    echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $1${C_RESET}"
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
 }
 
 render_btn() {
-    local key="$1"
-    local title="$2"
-    printf "  ${C_CYAN}[ ${C_BOLD}%s${C_RESET}${C_CYAN} ]${C_RESET}  ${C_BOLD}%s${C_RESET}\n" "$key" "$title"
+    printf "  ${C_CYAN}[ ${C_BOLD}%s${C_RESET}${C_CYAN} ]${C_RESET}  ${C_BOLD}%s${C_RESET}\n" "$1" "$2"
 }
 
 render_danger_btn() {
-    local key="$1"
-    local title="$2"
-    printf "  ${C_RED}[ ${C_BOLD}%s${C_RESET}${C_RED} ]  %s${C_RESET}\n" "$key" "$title"
+    printf "  ${C_RED}[ ${C_BOLD}%s${C_RESET}${C_RED} ]  %s${C_RESET}\n" "$1" "$2"
 }
 
 ui_pause() {
@@ -37,7 +20,6 @@ ui_pause() {
     printf "\033[2J\033[3J\033[H"
 }
 
-# دالة عرض المستخدمين المرقمة مع فحص الجلسات الحية
 select_user_by_number() {
     USERS_LIST=()
     local db="/etc/ssh-manager/users.db"
@@ -54,7 +36,8 @@ select_user_by_number() {
         [[ -z "$u" || "$u" =~ ^# ]] && continue
         USERS_LIST+=("$u")
         
-        local act_sess=$(ps -u "$u" -o comm= 2>/dev/null | grep -E '^(sshd|dropbear)$' | wc -l)
+        local act_sess
+        act_sess=$(ps -u "$u" -o comm= 2>/dev/null | grep -E '^(sshd|dropbear)$' | wc -l)
         local status_str
         if [ "$act_sess" -gt 0 ]; then
             status_str="${C_GREEN}ONLINE ($act_sess/$lim)${C_RESET}"
@@ -67,26 +50,4 @@ select_user_by_number() {
     done < "$db"
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
     return 0
-}SET}  ${C_BOLD}%s${C_RESET}\n" "$key" "$title"
-}
-
-render_danger_btn() {
-    local key="$1"
-    local title="$2"
-    printf "  ${C_RED}[ ${C_BOLD}%s${C_RESET}${C_RED} ]  %s${C_RESET}\n" "$key" "$title"
-}
-
-msg_ok() {
-    echo -e "\n  ${C_GREEN}✔ $1${C_RESET}"
-}
-
-msg_err() {
-    echo -e "\n  ${C_RED}✖ $1${C_RESET}"
-}
-
-ui_pause() {
-    echo ""
-    read -p "  [Press Enter to continue]" _
-    # تنظيف فوري عند المتابعة
-    printf "\033[2J\033[3J\033[H"
 }

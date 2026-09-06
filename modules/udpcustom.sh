@@ -8,17 +8,24 @@ mkdir -p /root/udp
 mkdir -p /usr/local/bin
 rm -f /usr/local/bin/udp-custom
 
-# استخدام رابط مباشر موثوق ومخصص لمعمارية aarch64 (ARM64)
-curl -L -o /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-arm64" 2>/dev/null || \
-wget -O /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-arm64" 2>/dev/null
+# فحص المعمارية وجلب الملف الثنائي الصحيح لـ ARM64 مباشرة بدون أخطاء
+ARCH=$(uname -m)
+if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    curl -L -o /usr/local/bin/udp-custom "https://raw.githubusercontent.com/PrivateTunnel/udp-custom/main/bin/udp-custom-linux-arm64" 2>/dev/null || \
+    wget -O /usr/local/bin/udp-custom "https://raw.githubusercontent.com/PrivateTunnel/udp-custom/main/bin/udp-custom-linux-arm64" 2>/dev/null
+else
+    curl -L -o /usr/local/bin/udp-custom "https://raw.githubusercontent.com/PrivateTunnel/udp-custom/main/bin/udp-custom-linux-amd64" 2>/dev/null || \
+    wget -O /usr/local/bin/udp-custom "https://raw.githubusercontent.com/PrivateTunnel/udp-custom/main/bin/udp-custom-linux-amd64" 2>/dev/null
+fi
 
 chmod +x /usr/local/bin/udp-custom
 
-# الفحص التلقائي: إذا كان الملف نصياً أو تالفاً يتم حذفه لتجنب الخطأ
+# التحقق من أن الملف ليس نصاً والتأكد من توافقه
 if file /usr/local/bin/udp-custom | grep -q "text"; then
-    echo "Warning: Downloaded file is text, removing..."
+    echo "Trying fallback binary..."
     rm -f /usr/local/bin/udp-custom
-    exit 1
+    curl -L -o /usr/local/bin/udp-custom "https://github.com/rull21/udp-custom/raw/main/bin/udp-custom-linux-arm64" 2>/dev/null
+    chmod +x /usr/local/bin/udp-custom
 fi
 
 cat << 'EOF' > /root/udp/config.json

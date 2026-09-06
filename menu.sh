@@ -2,18 +2,16 @@
 export LC_ALL=C
 clear
 
-# 1. تعريف الألوان الأساسية
-export C_RESET="\033[0m"
-export C_BOLD="\033[1m"
-export C_CYAN="\033[38;5;51m"
-export C_BLUE="\033[38;5;39m"
-export C_PURPLE="\033[38;5;141m"
-export C_GREEN="\033[38;5;48m"
-export C_YELLOW="\033[38;5;220m"
-export C_RED="\033[38;5;196m"
-export C_GRAY="\033[38;5;244m"
+C_RESET="\033[0m"
+C_BOLD="\033[1m"
+C_CYAN="\033[38;5;51m"
+C_BLUE="\033[38;5;39m"
+C_PURPLE="\033[38;5;141m"
+C_GREEN="\033[38;5;48m"
+C_YELLOW="\033[38;5;220m"
+C_RED="\033[38;5;196m"
+C_GRAY="\033[38;5;244m"
 
-# 2. تعريف دوال الواجهة المباشرة (Fallback يمنع command not found نهائياً)
 draw_section() {
     echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $1${C_RESET}"
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
@@ -33,13 +31,11 @@ ui_pause() {
     printf "\033[2J\033[3J\033[H"
 }
 
-# 3. محاولة استيراد الموديلات المنفصلة من ui/ إن وجدت
 UI_DIR="/etc/ssh-manager/ui"
 BASE_UI_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/ui"
 mkdir -p "$UI_DIR"
-
 for comp in colors banner buttons cards; do
-    if [ ! -s "$UI_DIR/$comp.sh" ]; then
+    if [ ! -f "$UI_DIR/$comp.sh" ]; then
         curl -fsSL -o "$UI_DIR/$comp.sh" "$BASE_UI_URL/$comp.sh" 2>/dev/null
         chmod +x "$UI_DIR/$comp.sh" 2>/dev/null
     fi
@@ -51,7 +47,6 @@ DOMAIN_FILE="/etc/ssh-manager/domain.conf"
 mkdir -p /etc/ssh-manager
 touch "$DB_FILE"
 
-# فحص تواجد دالة البانر
 if ! declare -f draw_banner >/dev/null; then
 draw_banner() {
     printf "\033[2J\033[3J\033[H"
@@ -70,6 +65,8 @@ draw_banner() {
     local s_ws="●"; systemctl is-active --quiet ws-dropbear && s_ws="${C_GREEN}●${C_RESET}" || s_ws="${C_RED}●${C_RESET}"
     local s_v2r="●"; systemctl is-active --quiet v2ray && s_v2r="${C_GREEN}●${C_RESET}" || s_v2r="${C_RED}●${C_RESET}"
     local s_ngx="●"; systemctl is-active --quiet nginx && s_ngx="${C_GREEN}●${C_RESET}" || s_ngx="${C_RED}●${C_RESET}"
+    local s_udp="●"; systemctl is-active --quiet udp-custom && s_udp="${C_GREEN}●${C_RESET}" || s_udp="${C_RED}●${C_RESET}"
+    local s_dns="●"; systemctl is-active --quiet dnstt && s_dns="${C_GREEN}●${C_RESET}" || s_dns="${C_RED}●${C_RESET}"
 
     echo -e "${C_CYAN}┌────────────────────────────────────────┐${C_RESET}"
     echo -e "${C_CYAN}│${C_RESET}       ${C_BOLD}${C_YELLOW}SSH-MANAGER BY-AZDIN${C_RESET}             ${C_CYAN}│${C_RESET}"
@@ -78,17 +75,17 @@ draw_banner() {
     printf "${C_CYAN}│${C_RESET} CPU: ${C_YELLOW}%-5s${C_RESET} | RAM: ${C_YELLOW}%s/%sMB (%s%%)${C_RESET}  ${C_CYAN}│${C_RESET}\n" "${cpu_load}%" "$mem_used" "$mem_total" "$mem_pct"
     printf "${C_CYAN}│${C_RESET} UP : ${C_GREEN}%-6s${C_RESET} | ONLINE: ${C_GREEN}%-2s${C_RESET} | USERS: ${C_GREEN}%-3s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$s_up" "$online_ssh" "$total_accs"
     echo -e "${C_CYAN}├────────────────────────────────────────┤${C_RESET}"
-    printf "${C_CYAN}│${C_RESET} SRV: SSH:%b WS:%b V2R:%b NGX:%b            ${C_CYAN}│${C_RESET}\n" "$s_ssh" "$s_ws" "$s_v2r" "$s_ngx"
+    printf "${C_CYAN}│${C_RESET} SRV: SSH:%b WS:%b V2R:%b NGX:%b UDP:%b DNS:%b ${C_CYAN}│${C_RESET}\n" "$s_ssh" "$s_ws" "$s_v2r" "$s_ngx" "$s_udp" "$s_dns"
     printf "${C_CYAN}│${C_RESET} DOM: ${C_PURPLE}%-33s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$cur_dom"
     echo -e "${C_CYAN}└────────────────────────────────────────┘${C_RESET}"
 }
 fi
 
-# فحص تواجد دالة اختيار المستخدم
 if ! declare -f select_user_by_number >/dev/null; then
 select_user_by_number() {
     USERS_LIST=()
-    if [ ! -s "$DB_FILE" ]; then
+    local db="/etc/ssh-manager/users.db"
+    if [ ! -s "$db" ]; then
         echo -e "  ${C_GRAY}(No active accounts found)${C_RESET}"
         return 1
     fi
@@ -100,25 +97,21 @@ select_user_by_number() {
     while IFS=: read -r u p exp lim bw _; do
         [[ -z "$u" || "$u" =~ ^# ]] && continue
         USERS_LIST+=("$u")
-        
-        local act_sess
-        act_sess=$(ps -u "$u" -o comm= 2>/dev/null | grep -E '^(sshd|dropbear)$' | wc -l)
+        local act_sess=$(ps -u "$u" -o comm= 2>/dev/null | grep -E '^(sshd|dropbear)$' | wc -l)
         local status_str
         if [ "$act_sess" -gt 0 ]; then
             status_str="${C_GREEN}ONLINE ($act_sess/$lim)${C_RESET}"
         else
             status_str="${C_GRAY}OFFLINE (0/$lim)${C_RESET}"
         fi
-
         printf "  ${C_YELLOW}[%2d]${C_RESET} %-12s %-25b %-10s\n" "$count" "$u" "$status_str" "$exp"
         ((count++))
-    done < "$DB_FILE"
+    done < "$db"
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
     return 0
 }
 fi
 
-# فحص تواجد كرت البيانات
 if ! declare -f draw_user_card >/dev/null; then
 draw_user_card() {
     local u="$1" p="$2" exp="$3" lim="$4" bw="$5"
@@ -169,6 +162,110 @@ for ib in cfg.get("inbounds", []):
 with open(path, "w") as f: json.dump(cfg, f, indent=2)
 ' "$u" "$p" "$uuid" "$action" 2>/dev/null || true
     systemctl restart v2ray 2>/dev/null || true
+}
+
+# --- مركز التحكم بالبروتوكولات ---
+menu_protocols() {
+    while true; do
+        draw_banner
+        draw_section "PROTOCOLS & SERVICES SUITE"
+        render_btn "1" "Check Status of All Protocols"
+        render_btn "2" "Restart All Services (Full Refresh)"
+        render_btn "3" "Manage UDP-Custom Service"
+        render_btn "4" "Manage WS-Dropbear Bridge"
+        render_btn "5" "Manage V2Ray Core"
+        render_btn "6" "Manage SlowDNS (DNSTT)"
+        render_btn "0" "Back to Dashboard"
+
+        echo ""
+        read -p "  Select: " popt
+        case "$popt" in
+            1)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "PROTOCOLS HEALTH STATUS"
+                for srv in ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt; do
+                    printf "  %-18s : " "$srv"
+                    systemctl is-active --quiet "$srv" && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
+                done
+                ui_pause
+                ;;
+            2)
+                systemctl restart ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt 2>/dev/null || true
+                echo -e "\n  ${C_GREEN}✔ All services restarted successfully.${C_RESET}"
+                ui_pause
+                ;;
+            3)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "UDP-CUSTOM CONTROL"
+                render_btn "1" "Restart UDP-Custom"
+                render_btn "2" "View Logs"
+                render_btn "0" "Back"
+                echo ""
+                read -p "  Action: " uact
+                if [ "$uact" = "1" ]; then
+                    systemctl restart udp-custom
+                    echo -e "  ${C_GREEN}✔ UDP-Custom restarted.${C_RESET}"
+                elif [ "$uact" = "2" ]; then
+                    systemctl status udp-custom --no-pager | head -n 15
+                fi
+                ui_pause
+                ;;
+            4)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "WS-DROPBEAR CONTROL"
+                render_btn "1" "Restart WS-Dropbear"
+                render_btn "2" "View Logs"
+                render_btn "0" "Back"
+                echo ""
+                read -p "  Action: " wact
+                if [ "$wact" = "1" ]; then
+                    systemctl restart ws-dropbear
+                    echo -e "  ${C_GREEN}✔ WS-Dropbear restarted.${C_RESET}"
+                elif [ "$wact" = "2" ]; then
+                    systemctl status ws-dropbear --no-pager | head -n 15
+                fi
+                ui_pause
+                ;;
+            5)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "V2RAY CONTROL"
+                render_btn "1" "Restart V2Ray"
+                render_btn "2" "View Logs"
+                render_btn "0" "Back"
+                echo ""
+                read -p "  Action: " vact
+                if [ "$vact" = "1" ]; then
+                    systemctl restart v2ray
+                    echo -e "  ${C_GREEN}✔ V2Ray restarted.${C_RESET}"
+                elif [ "$vact" = "2" ]; then
+                    systemctl status v2ray --no-pager | head -n 15
+                fi
+                ui_pause
+                ;;
+            6)
+                printf "\033[2J\033[3J\033[H"
+                draw_banner
+                draw_section "SLOWDNS (DNSTT) CONTROL"
+                render_btn "1" "Restart SlowDNS"
+                render_btn "2" "Show Public Key"
+                render_btn "0" "Back"
+                echo ""
+                read -p "  Action: " dact
+                if [ "$dact" = "1" ]; then
+                    systemctl restart dnstt
+                    echo -e "  ${C_GREEN}✔ SlowDNS restarted.${C_RESET}"
+                elif [ "$dact" = "2" ]; then
+                    [ -f /etc/ssh-manager/dnstt/server.pub ] && echo -e "  Key: ${C_CYAN}$(cat /etc/ssh-manager/dnstt/server.pub)${C_RESET}"
+                fi
+                ui_pause
+                ;;
+            0) break ;;
+        esac
+    done
 }
 
 update_script() {
@@ -381,7 +478,7 @@ while true; do
     draw_banner
     draw_section "MAIN CONTROL HUB"
     render_btn "1" "User Account Manager"
-    render_btn "2" "Restart All Services"
+    render_btn "2" "Protocols & Services Suite"
     render_btn "3" "Change Domain"
     render_btn "4" "Active Live Sessions"
     render_btn "8" "Update Script"
@@ -392,11 +489,7 @@ while true; do
     read -p "  Select [0-9]: " mc
     case "$mc" in
         1) menu_users ;;
-        2)
-            systemctl restart ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt 2>/dev/null || true
-            echo -e "  ${C_GREEN}✔ Services refreshed.${C_RESET}"
-            ui_pause
-            ;;
+        2) menu_protocols ;;
         3)
             read -p "  Enter new domain: " ndom
             [[ -n "$ndom" ]] && echo "$ndom" > "$DOMAIN_FILE"

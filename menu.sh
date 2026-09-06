@@ -2,17 +2,18 @@
 export LC_ALL=C
 clear
 
-# دوال التصميم مدمجة مباشرة لمنع خطأ command not found نهائياً
-C_RESET="\033[0m"
-C_BOLD="\033[1m"
-C_CYAN="\033[38;5;51m"
-C_BLUE="\033[38;5;39m"
-C_PURPLE="\033[38;5;141m"
-C_GREEN="\033[38;5;48m"
-C_YELLOW="\033[38;5;220m"
-C_RED="\033[38;5;196m"
-C_GRAY="\033[38;5;244m"
+# 1. تعريف الألوان الأساسية
+export C_RESET="\033[0m"
+export C_BOLD="\033[1m"
+export C_CYAN="\033[38;5;51m"
+export C_BLUE="\033[38;5;39m"
+export C_PURPLE="\033[38;5;141m"
+export C_GREEN="\033[38;5;48m"
+export C_YELLOW="\033[38;5;220m"
+export C_RED="\033[38;5;196m"
+export C_GRAY="\033[38;5;244m"
 
+# 2. تعريف دوال الواجهة المباشرة (Fallback يمنع command not found نهائياً)
 draw_section() {
     echo -e "\n  ${C_BOLD}${C_YELLOW}▶ $1${C_RESET}"
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
@@ -32,16 +33,17 @@ ui_pause() {
     printf "\033[2J\033[3J\033[H"
 }
 
-# محاولة تحميل مجلد ui الخارجي إن وجد
+# 3. محاولة استيراد الموديلات المنفصلة من ui/ إن وجدت
 UI_DIR="/etc/ssh-manager/ui"
 BASE_UI_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/ui"
 mkdir -p "$UI_DIR"
+
 for comp in colors banner buttons cards; do
-    if [ ! -f "$UI_DIR/$comp.sh" ]; then
+    if [ ! -s "$UI_DIR/$comp.sh" ]; then
         curl -fsSL -o "$UI_DIR/$comp.sh" "$BASE_UI_URL/$comp.sh" 2>/dev/null
         chmod +x "$UI_DIR/$comp.sh" 2>/dev/null
     fi
-    [ -f "$UI_DIR/$comp.sh" ] && source "$UI_DIR/$comp.sh" 2>/dev/null
+    [ -s "$UI_DIR/$comp.sh" ] && source "$UI_DIR/$comp.sh" 2>/dev/null
 done
 
 DB_FILE="/etc/ssh-manager/users.db"
@@ -49,6 +51,8 @@ DOMAIN_FILE="/etc/ssh-manager/domain.conf"
 mkdir -p /etc/ssh-manager
 touch "$DB_FILE"
 
+# فحص تواجد دالة البانر
+if ! declare -f draw_banner >/dev/null; then
 draw_banner() {
     printf "\033[2J\033[3J\033[H"
     local cur_dom="127.0.0.1"
@@ -78,7 +82,10 @@ draw_banner() {
     printf "${C_CYAN}│${C_RESET} DOM: ${C_PURPLE}%-33s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$cur_dom"
     echo -e "${C_CYAN}└────────────────────────────────────────┘${C_RESET}"
 }
+fi
 
+# فحص تواجد دالة اختيار المستخدم
+if ! declare -f select_user_by_number >/dev/null; then
 select_user_by_number() {
     USERS_LIST=()
     if [ ! -s "$DB_FILE" ]; then
@@ -94,7 +101,8 @@ select_user_by_number() {
         [[ -z "$u" || "$u" =~ ^# ]] && continue
         USERS_LIST+=("$u")
         
-        local act_sess=$(ps -u "$u" -o comm= 2>/dev/null | grep -E '^(sshd|dropbear)$' | wc -l)
+        local act_sess
+        act_sess=$(ps -u "$u" -o comm= 2>/dev/null | grep -E '^(sshd|dropbear)$' | wc -l)
         local status_str
         if [ "$act_sess" -gt 0 ]; then
             status_str="${C_GREEN}ONLINE ($act_sess/$lim)${C_RESET}"
@@ -108,6 +116,33 @@ select_user_by_number() {
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
     return 0
 }
+fi
+
+# فحص تواجد كرت البيانات
+if ! declare -f draw_user_card >/dev/null; then
+draw_user_card() {
+    local u="$1" p="$2" exp="$3" lim="$4" bw="$5"
+    local dom=$(cat "$DOMAIN_FILE" 2>/dev/null || echo "127.0.0.1")
+    local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
+
+    local vmess_json="{\"v\":\"2\",\"ps\":\"$u\",\"add\":\"$dom\",\"port\":\"443\",\"id\":\"$u_uuid\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$dom\",\"path\":\"/v2ray\",\"tls\":\"tls\",\"sni\":\"$dom\"}"
+    local vmess_link="vmess://$(echo -n "$vmess_json" | base64 -w 0 2>/dev/null || true)"
+    local trojan_link="trojan://$p@$dom:443?security=tls&sni=$dom&type=ws&path=%2Ftrojan#$u"
+    local vless_link="vless://$u_uuid@$dom:443?security=tls&encryption=none&type=ws&sni=$dom&path=%2Fvless#$u"
+
+    echo ""
+    echo -e "${C_YELLOW}┌──[ ACCOUNT CREDENTIALS ]───────────────┐${C_RESET}"
+    printf "${C_YELLOW}│${C_RESET} USER  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$u"
+    printf "${C_YELLOW}│${C_RESET} PASS  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$p"
+    printf "${C_YELLOW}│${C_RESET} EXP   : %-30s ${C_YELLOW}│${C_RESET}\n" "$exp"
+    printf "${C_YELLOW}│${C_RESET} LIMIT : %-30s ${C_YELLOW}│${C_RESET}\n" "$lim Devices | $([ "$bw" = "0" ] && echo "Unlim" || echo "$bw GB")"
+    echo -e "${C_YELLOW}├──[ QUICK CONFIG LINKS ]────────────────┤${C_RESET}"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS:${C_RESET}\n$vless_link\n"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}TROJAN:${C_RESET}\n$trojan_link\n"
+    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMESS:${C_RESET}\n$vmess_link"
+    echo -e "${C_YELLOW}└────────────────────────────────────────┘${C_RESET}"
+}
+fi
 
 sync_v2ray() {
     local u="$1" p="$2" uuid="$3" action="$4"
@@ -134,29 +169,6 @@ for ib in cfg.get("inbounds", []):
 with open(path, "w") as f: json.dump(cfg, f, indent=2)
 ' "$u" "$p" "$uuid" "$action" 2>/dev/null || true
     systemctl restart v2ray 2>/dev/null || true
-}
-
-draw_user_card() {
-    local u="$1" p="$2" exp="$3" lim="$4" bw="$5"
-    local dom=$(cat "$DOMAIN_FILE" 2>/dev/null || echo "127.0.0.1")
-    local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
-
-    local vmess_json="{\"v\":\"2\",\"ps\":\"$u\",\"add\":\"$dom\",\"port\":\"443\",\"id\":\"$u_uuid\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$dom\",\"path\":\"/v2ray\",\"tls\":\"tls\",\"sni\":\"$dom\"}"
-    local vmess_link="vmess://$(echo -n "$vmess_json" | base64 -w 0 2>/dev/null || true)"
-    local trojan_link="trojan://$p@$dom:443?security=tls&sni=$dom&type=ws&path=%2Ftrojan#$u"
-    local vless_link="vless://$u_uuid@$dom:443?security=tls&encryption=none&type=ws&sni=$dom&path=%2Fvless#$u"
-
-    echo ""
-    echo -e "${C_YELLOW}┌──[ ACCOUNT CREDENTIALS ]───────────────┐${C_RESET}"
-    printf "${C_YELLOW}│${C_RESET} USER  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$u"
-    printf "${C_YELLOW}│${C_RESET} PASS  : ${C_BOLD}%-30s${C_RESET} ${C_YELLOW}│${C_RESET}\n" "$p"
-    printf "${C_YELLOW}│${C_RESET} EXP   : %-30s ${C_YELLOW}│${C_RESET}\n" "$exp"
-    printf "${C_YELLOW}│${C_RESET} LIMIT : %-30s ${C_YELLOW}│${C_RESET}\n" "$lim Devices | $([ "$bw" = "0" ] && echo "Unlim" || echo "$bw GB")"
-    echo -e "${C_YELLOW}├──[ QUICK CONFIG LINKS ]────────────────┤${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS:${C_RESET}\n$vless_link\n"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}TROJAN:${C_RESET}\n$trojan_link\n"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMESS:${C_RESET}\n$vmess_link"
-    echo -e "${C_YELLOW}└────────────────────────────────────────┘${C_RESET}"
 }
 
 update_script() {

@@ -5,7 +5,7 @@
 ### Installation
 
 ```bash
-curl -fsSL -o /usr/local/bin/menu [https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/menu.sh](https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/menu.sh) && chmod +x /usr/local/bin/menu && menu
+curl -fsSL -o /usr/local/bin/menu https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/menu.sh && chmod +x /usr/local/bin/menu && menu
 ```
 
 ---

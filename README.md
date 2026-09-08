@@ -1,7 +1,9 @@
 # SSH-MANAGER-BY-AZDIN
 ---
 I- Installation:
-'''bash curl -fsSL -o /usr/local/bin/menu https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/menu.sh && chmod +x /usr/local/bin/menu && menu'''
+'''bash
+curl -fsSL -o /usr/local/bin/menu https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/menu.sh && chmod +x /usr/local/bin/menu && menu
+'''
 ---
 II- Authentication fix (not for all)
 # 1. Clean out cloud-init overrides that force-disable password logins

@@ -12,16 +12,36 @@ C_YELLOW="\033[38;5;220m"
 C_RED="\033[38;5;196m"
 C_GRAY="\033[38;5;244m"
 
-# Fix and ensure authentication is active
-fix_auth_services() {
-    if [ -f /etc/default/dropbear ]; then
-        sed -i 's/NO_START=1/NO_START=0/' /etc/default/dropbear
-        systemctl restart dropbear 2>/dev/null || true
+DB_FILE="/etc/ssh-manager/users.db"
+DOMAIN_FILE="/etc/ssh-manager/domain.conf"
+UI_DIR="/etc/ssh-manager/ui"
+BASE_UI_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/ui"
+
+mkdir -p /etc/ssh-manager "$UI_DIR"
+touch "$DB_FILE"
+[ ! -f "$DOMAIN_FILE" ] && echo "127.0.0.1" > "$DOMAIN_FILE"
+
+# Ensure UI files exist
+for comp in colors banner buttons cards; do
+    if [ ! -f "$UI_DIR/$comp.sh" ]; then
+        curl -fsSL -o "$UI_DIR/$comp.sh" "$BASE_UI_URL/$comp.sh" 2>/dev/null
+        chmod +x "$UI_DIR/$comp.sh" 2>/dev/null
     fi
-    if [ -f /etc/ssh/sshd_config ]; then
-        sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+    [ -s "$UI_DIR/$comp.sh" ] && source "$UI_DIR/$comp.sh" 2>/dev/null
+done
+
+# Check and enforce SSH authentication overrides silently
+fix_auth_services() {
+    mkdir -p /etc/ssh/sshd_config.d
+    if [ ! -f /etc/ssh/sshd_config.d/00-override.conf ]; then
+        cat << 'EOF' > /etc/ssh/sshd_config.d/00-override.conf
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+PubkeyAuthentication yes
+UsePAM yes
+AuthenticationMethods password publickey,password keyboard-interactive
+EOF
+        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
     fi
 }
 fix_auth_services
@@ -45,23 +65,6 @@ ui_pause() {
     printf "\033[2J\033[3J\033[H"
 }
 
-UI_DIR="/etc/ssh-manager/ui"
-BASE_UI_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/ui"
-mkdir -p "$UI_DIR"
-for comp in colors banner buttons cards; do
-    if [ ! -f "$UI_DIR/$comp.sh" ]; then
-        curl -fsSL -o "$UI_DIR/$comp.sh" "$BASE_UI_URL/$comp.sh" 2>/dev/null
-        chmod +x "$UI_DIR/$comp.sh" 2>/dev/null
-    fi
-    [ -s "$UI_DIR/$comp.sh" ] && source "$UI_DIR/$comp.sh" 2>/dev/null
-done
-
-DB_FILE="/etc/ssh-manager/users.db"
-DOMAIN_FILE="/etc/ssh-manager/domain.conf"
-mkdir -p /etc/ssh-manager
-touch "$DB_FILE"
-
-if ! declare -f draw_banner >/dev/null; then
 draw_banner() {
     printf "\033[2J\033[3J\033[H"
     local cur_dom="127.0.0.1"
@@ -93,13 +96,10 @@ draw_banner() {
     printf "${C_CYAN}│${C_RESET} DOM: ${C_PURPLE}%-33s${C_RESET} ${C_CYAN}│${C_RESET}\n" "$cur_dom"
     echo -e "${C_CYAN}└────────────────────────────────────────┘${C_RESET}"
 }
-fi
 
-if ! declare -f select_user_by_number >/dev/null; then
 select_user_by_number() {
     USERS_LIST=()
-    local db="/etc/ssh-manager/users.db"
-    if [ ! -s "$db" ]; then
+    if [ ! -s "$DB_FILE" ]; then
         echo -e "  ${C_GRAY}(No active accounts found)${C_RESET}"
         return 1
     fi
@@ -120,55 +120,10 @@ select_user_by_number() {
         fi
         printf "  ${C_YELLOW}[%2d]${C_RESET} %-12s %-25b %-10s\n" "$count" "$u" "$status_str" "$exp"
         ((count++))
-    done < "$db"
+    done < "$DB_FILE"
     echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
     return 0
 }
-fi
-
-if ! declare -f draw_user_card >/dev/null; then
-draw_user_card() {
-    local u="$1" p="$2" exp="$3" lim="$4" bw="$5"
-    local dom=$(cat "$DOMAIN_FILE" 2>/dev/null || echo "127.0.0.1")
-    local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
-
-    local vmess_json="{\"v\":\"2\",\"ps\":\"$u\",\"add\":\"$dom\",\"port\":\"443\",\"id\":\"$u_uuid\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$dom\",\"path\":\"/v2ray\",\"tls\":\"tls\",\"sni\":\"$dom\"}"
-    local vmess_link="vmess://$(echo -n "$vmess_json" | base64 -w 0 2>/dev/null || true)"
-    local trojan_link="trojan://$p@$dom:443?security=tls&sni=$dom&type=ws&path=%2Ftrojan#$u"
-    local vless_link="vless://$u_uuid@$dom:443?security=tls&encryption=none&type=ws&sni=$dom&path=%2Fvless#$u"
-
-    echo ""
-    echo -e "${C_YELLOW}┌────────────────────────────────────────┐${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET}           ${C_BOLD}${C_CYAN}ACCOUNT CREDENTIALS${C_RESET}          ${C_YELLOW}│${C_RESET}"
-    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
-    printf "${C_YELLOW}│${C_RESET} USER  : %-30s ${C_YELLOW}│${C_RESET}\n" "$u"
-    printf "${C_YELLOW}│${C_RESET} PASS  : %-30s ${C_YELLOW}│${C_RESET}\n" "$p"
-    printf "${C_YELLOW}│${C_RESET} EXP   : %-30s ${C_YELLOW}│${C_RESET}\n" "$exp"
-    printf "${C_YELLOW}│${C_RESET} LIMIT : %-30s ${C_YELLOW}│${C_RESET}\n" "$lim Devices | $([ "$bw" = "0" ] && echo "Unlim" || echo "$bw GB")"
-    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VLESS Link:${C_RESET}                           ${C_YELLOW}│${C_RESET}"
-    
-    for chunk in $(echo "$vless_link" | fold -w 38); do
-        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
-    done
-    
-    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}Trojan Link:${C_RESET}                          ${C_YELLOW}│${C_RESET}"
-    
-    for chunk in $(echo "$trojan_link" | fold -w 38); do
-        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
-    done
-    
-    echo -e "${C_YELLOW}├────────────────────────────────────────┤${C_RESET}"
-    echo -e "${C_YELLOW}│${C_RESET} ${C_GREEN}VMess Link:${C_RESET}                           ${C_YELLOW}│${C_RESET}"
-    
-    for chunk in $(echo "$vmess_link" | fold -w 38); do
-        printf "${C_YELLOW}│${C_RESET} %-38s ${C_YELLOW}│${C_RESET}\n" "$chunk"
-    done
-    
-    echo -e "${C_YELLOW}└────────────────────────────────────────┘${C_RESET}"
-}
-fi
 
 sync_v2ray() {
     local u="$1" p="$2" uuid="$3" action="$4"
@@ -197,162 +152,35 @@ with open(path, "w") as f: json.dump(cfg, f, indent=2)
     systemctl restart v2ray 2>/dev/null || true
 }
 
-menu_protocols() {
-    while true; do
-        draw_banner
-        draw_section "PROTOCOLS & SERVICES SUITE"
-        render_btn "1" "Check Status of All Protocols"
-        render_btn "2" "Restart All Services (Full Refresh)"
-        render_btn "3" "Manage UDP-Custom Service"
-        render_btn "4" "Manage WS-Dropbear Bridge"
-        render_btn "5" "Manage V2Ray Core"
-        render_btn "6" "Manage SlowDNS (DNSTT)"
-        render_btn "0" "Back to Dashboard"
+ensure_dnstt_service() {
+    local dom=$(cat "$DOMAIN_FILE" 2>/dev/null || echo "127.0.0.1")
+    if [ ! -f /usr/local/bin/dnstt-server ] || [ ! -f /etc/systemd/system/dnstt.service ]; then
+        mkdir -p /etc/slowdns
+        ARCH=$(uname -m)
+        [ "$ARCH" = "aarch64" ] && D_ARCH="arm64" || D_ARCH="amd64"
+        curl -fsSL -o /usr/local/bin/dnstt-server "https://github.com/cbeuw/dnstt/releases/latest/download/dnstt-server-linux-${D_ARCH}" 2>/dev/null
+        chmod +x /usr/local/bin/dnstt-server
 
-        echo ""
-        read -p "  Select: " popt
-        case "$popt" in
-            1)
-                printf "\033[2J\033[3J\033[H"
-                draw_banner
-                draw_section "PROTOCOLS HEALTH STATUS"
-                for srv in ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt; do
-                    printf "  %-18s : " "$srv"
-                    systemctl is-active --quiet "$srv" && echo -e "${C_GREEN}RUNNING${C_RESET}" || echo -e "${C_RED}STOPPED${C_RESET}"
-                done
-                ui_pause
-                ;;
-            2)
-                systemctl restart ssh ws-dropbear v2ray nginx badvpn udp-custom dnstt 2>/dev/null || true
-                echo -e "\n  ${C_GREEN}✔ All services restarted successfully.${C_RESET}"
-                ui_pause
-                ;;
-            3)
-                printf "\033[2J\033[3J\033[H"
-                draw_banner
-                draw_section "UDP-CUSTOM CONTROL"
-                render_btn "1" "Restart UDP-Custom"
-                render_btn "2" "View Logs"
-                render_btn "0" "Back"
-                echo ""
-                read -p "  Action: " uact
-                if [ "$uact" = "1" ]; then
-                    systemctl restart udp-custom
-                    echo -e "  ${C_GREEN}✔ UDP-Custom restarted.${C_RESET}"
-                elif [ "$uact" = "2" ]; then
-                    systemctl status udp-custom --no-pager | head -n 15
-                fi
-                ui_pause
-                ;;
-            4)
-                printf "\033[2J\033[3J\033[H"
-                draw_banner
-                draw_section "WS-DROPBEAR CONTROL"
-                render_btn "1" "Restart WS-Dropbear"
-                render_btn "2" "View Logs"
-                render_btn "0" "Back"
-                echo ""
-                read -p "  Action: " wact
-                if [ "$wact" = "1" ]; then
-                    systemctl restart ws-dropbear
-                    echo -e "  ${C_GREEN}✔ WS-Dropbear restarted.${C_RESET}"
-                elif [ "$wact" = "2" ]; then
-                    systemctl status ws-dropbear --no-pager | head -n 15
-                fi
-                ui_pause
-                ;;
-            5)
-                printf "\033[2J\033[3J\033[H"
-                draw_banner
-                draw_section "V2RAY CONTROL"
-                render_btn "1" "Restart V2Ray"
-                render_btn "2" "View Logs"
-                render_btn "0" "Back"
-                echo ""
-                read -p "  Action: " vact
-                if [ "$vact" = "1" ]; then
-                    systemctl restart v2ray
-                    echo -e "  ${C_GREEN}✔ V2Ray restarted.${C_RESET}"
-                elif [ "$vact" = "2" ]; then
-                    systemctl status v2ray --no-pager | head -n 15
-                fi
-                ui_pause
-                ;;
-            6)
-                printf "\033[2J\033[3J\033[H"
-                draw_banner
-                draw_section "SLOWDNS (DNSTT) CONTROL"
-                render_btn "1" "Restart SlowDNS"
-                render_btn "2" "Show Public Key"
-                render_btn "0" "Back"
-                echo ""
-                read -p "  Action: " dact
-                if [ "$dact" = "1" ]; then
-                    systemctl restart dnstt
-                    echo -e "  ${C_GREEN}✔ SlowDNS restarted.${C_RESET}"
-                elif [ "$dact" = "2" ]; then
-                    [ -f /etc/ssh-manager/dnstt/server.pub ] && echo -e "  Key: ${C_CYAN}$(cat /etc/ssh-manager/dnstt/server.pub)${C_RESET}"
-                fi
-                ui_pause
-                ;;
-            0) break ;;
-        esac
-    done
-}
+        [ ! -f /etc/slowdns/server.key ] && /usr/local/bin/dnstt-server -gen-key -privkey-file /etc/slowdns/server.key -pubkey-file /etc/slowdns/server.pub 2>/dev/null || true
 
-update_script() {
-    printf "\033[2J\033[3J\033[H"
-    echo -e "\n  ${C_CYAN}[*] Updating script from GitHub...${C_RESET}"
-    local REPO_URL="https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main"
-    rm -rf /etc/ssh-manager/ui
-    curl -fsSL -o /usr/local/bin/ssh-manager "$REPO_URL/menu.sh" 2>/dev/null
-    chmod +x /usr/local/bin/ssh-manager
-    ln -sf /usr/local/bin/ssh-manager /usr/local/bin/menu
-    echo -e "  ${C_GREEN}✔ Updated successfully.${C_RESET}"
-    ui_pause
-    exec menu
-}
+        cat << EOF > /etc/systemd/system/dnstt.service
+[Unit]
+Description=SlowDNS (DNSTT) Server
+After=network.target
 
-purge_everything() {
-    printf "\033[2J\033[3J\033[H"
-    echo -e "${C_RED}=========================================="
-    echo "        COMPLETE UNINSTALL & PURGE         "
-    echo -e "==========================================${C_RESET}"
-    read -p "Type 'DELETE' to erase everything: " confirm
-    if [ "$confirm" != "DELETE" ]; then
-        echo -e "\n  ${C_RED}Action canceled.${C_RESET}"
-        ui_pause
-        return
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/dnstt-server -udp :5300 -privkey-file /etc/slowdns/server.key ns.${dom} 127.0.0.1:22
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable dnstt 2>/dev/null || true
     fi
-
-    systemctl stop nginx apache2 v2ray badvpn udp-custom dnstt ws-dropbear 2>/dev/null
-    systemctl disable nginx apache2 v2ray badvpn udp-custom dnstt ws-dropbear 2>/dev/null
-    pkill -9 -f badvpn 2>/dev/null
-    pkill -9 -f udp-custom 2>/dev/null
-    pkill -9 -f dnstt-server 2>/dev/null
-    pkill -9 -f v2ray 2>/dev/null
-    pkill -9 -f ws-dropbear 2>/dev/null
-    fuser -k 80/tcp 443/tcp 53/udp 7300/udp 10015/tcp 2>/dev/null
-    crontab -r 2>/dev/null || true
-
-    if [ -f "$DB_FILE" ]; then
-        while IFS=: read -r u _rest; do
-            [[ -n "$u" && ! "$u" =~ ^# ]] && userdel -f "$u" 2>/dev/null
-        done < "$DB_FILE"
-    fi
-
-    apt-get purge -y nginx nginx-common v2ray certbot python3-certbot-nginx 2>/dev/null
-    apt-get autoremove -y --purge 2>/dev/null
-
-    rm -rf /etc/ssh-manager /usr/local/etc/v2ray /etc/v2ray /root/udp /etc/nginx /etc/letsencrypt
-    rm -f /usr/local/bin/ssh-manager /usr/local/bin/menu* /bin/menu /usr/bin/menu
-    rm -f /usr/local/bin/badvpn-udpgw /usr/local/bin/udp-custom /usr/local/bin/dnstt-server /usr/local/bin/ws-dropbear /usr/local/bin/session-watchdog
-    rm -f /etc/systemd/system/badvpn.service /etc/systemd/system/udp-custom.service /etc/systemd/system/dnstt.service /etc/systemd/system/ws-dropbear.service
-    systemctl daemon-reload
-
-    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
-    echo -e "\n  ${C_GREEN}✔ Everything wiped clean.${C_RESET}\n"
-    exit 0
 }
 
 menu_users() {
@@ -380,27 +208,34 @@ menu_users() {
                 [[ -z "$p" ]] && continue
                 read -p "  Days (0 for Lifetime) [30]: " d
                 d=${d:-30}
+
+                # Universal system account creation
+                useradd -M -s /bin/false "$u" 2>/dev/null || useradd -m -s /bin/false "$u"
                 if [[ "$d" == "0" || "${d,,}" == "never" ]]; then
                     exp="Never"
-                    useradd -M -s /bin/false "$u"
-                    chage -E -1 "$u"
+                    chage -E -1 "$u" 2>/dev/null || true
                 else
                     exp=$(date -d "+$d days" +%Y-%m-%d)
-                    useradd -M -s /bin/false -e "$exp" "$u"
+                    usermod -e "$exp" "$u" 2>/dev/null || true
                 fi
+                chage -I -1 "$u" 2>/dev/null || true
+                chage -m 0 "$u" 2>/dev/null || true
+                chage -M 99999 "$u" 2>/dev/null || true
+
+                echo "$u:$p" | chpasswd
+                usermod -p "$(openssl passwd -1 "$p")" "$u" 2>/dev/null || true
+                passwd -u "$u" 2>/dev/null || true
+
                 read -p "  Limit Devices [2]: " lim
                 lim=${lim:-2}
                 read -p "  Bandwidth GB (0=Unlim) [0]: " bw
                 bw=${bw:-0}
 
-                echo "$u:$p" | chpasswd
-                usermod -p "$(openssl passwd -1 "$p")" "$u" 2>/dev/null || true
-                usermod -U "$u" 2>/dev/null
                 echo "$u:$p:$exp:$lim:$bw:" >> "$DB_FILE"
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$u')))" 2>/dev/null || echo "none")
                 sync_v2ray "$u" "$p" "$u_uuid" "add"
 
-                draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
+                declare -f draw_user_card >/dev/null && draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
                 ui_pause
                 ;;
             2)
@@ -427,20 +262,22 @@ menu_users() {
 
                 nexp="$cur_exp"
                 if [[ "$nd" == "0" || "${nd,,}" == "never" ]]; then
-                    nexp="Never"; chage -E -1 "$target"
+                    nexp="Never"; chage -E -1 "$target" 2>/dev/null || true
                 elif [[ -n "$nd" && "$nd" =~ ^[0-9]+$ ]]; then
-                    nexp=$(date -d "+$nd days" +%Y-%m-%d); usermod -e "$nexp" "$target"
+                    nexp=$(date -d "+$nd days" +%Y-%m-%d); usermod -e "$nexp" "$target" 2>/dev/null || true
                 fi
 
                 echo "$target:$np" | chpasswd
                 usermod -p "$(openssl passwd -1 "$np")" "$target" 2>/dev/null || true
+                passwd -u "$target" 2>/dev/null || true
+
                 sed -i "/^$target:/d" "$DB_FILE"
                 echo "$target:$np:$nexp:$nlim:$nbw:" >> "$DB_FILE"
                 local u_uuid=$(python3 -c "import uuid; print(str(uuid.uuid5(uuid.NAMESPACE_DNS, '$target')))" 2>/dev/null || echo "none")
                 sync_v2ray "$target" "$np" "$u_uuid" "update"
 
                 echo -e "  ${C_GREEN}✔ Updated.${C_RESET}"
-                draw_user_card "$target" "$np" "$nexp" "$nlim" "$nbw"
+                declare -f draw_user_card >/dev/null && draw_user_card "$target" "$np" "$nexp" "$nlim" "$nbw"
                 ui_pause
                 ;;
             3)
@@ -454,7 +291,7 @@ menu_users() {
                 local target="${USERS_LIST[$((unum-1))]}"
                 if [[ -z "$target" ]]; then echo -e "  ${C_RED}Invalid selection!${C_RESET}"; ui_pause; continue; fi
                 IFS=: read -r u p exp lim bw _rest <<< "$(grep "^$target:" "$DB_FILE")"
-                draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
+                declare -f draw_user_card >/dev/null && draw_user_card "$u" "$p" "$exp" "$lim" "$bw"
                 ui_pause
                 ;;
             4)
@@ -508,6 +345,75 @@ except Exception: pass
     done
 }
 
+menu_slowdns() {
+    while true; do
+        draw_banner
+        draw_section "SLOWDNS (DNSTT) CONTROL"
+        render_btn "1" "Restart SlowDNS"
+        render_btn "2" "Show Public Key"
+        render_btn "0" "Back"
+
+        echo ""
+        read -p "  Action: " opt
+        case "$opt" in
+            1)
+                ensure_dnstt_service
+                systemctl restart dnstt 2>/dev/null
+                if systemctl is-active --quiet dnstt; then
+                    echo -e "  ${C_GREEN}✔ SlowDNS restarted.${C_RESET}"
+                else
+                    echo -e "  ${C_RED}✖ SlowDNS service failed to start.${C_RESET}"
+                fi
+                ui_pause
+                ;;
+            2)
+                echo ""
+                if [ -f /etc/slowdns/server.pub ]; then
+                    echo -e "  ${C_CYAN}SlowDNS Public Key:${C_RESET}"
+                    echo -e "  ${C_YELLOW}$(cat /etc/slowdns/server.pub)${C_RESET}"
+                else
+                    echo -e "  ${C_RED}Key not found! Generating...${C_RESET}"
+                    ensure_dnstt_service
+                    cat /etc/slowdns/server.pub 2>/dev/null || echo -e "  ${C_RED}Failed to locate key.${C_RESET}"
+                fi
+                ui_pause
+                ;;
+            0) break ;;
+        esac
+    done
+}
+
+menu_protocols() {
+    while true; do
+        draw_banner
+        draw_section "PROTOCOLS & SERVICES"
+        render_btn "1" "SlowDNS (DNSTT) Manager"
+        render_btn "2" "Restart SSH & Dropbear"
+        render_btn "3" "Restart V2Ray Services"
+        render_btn "0" "Back"
+
+        echo ""
+        read -p "  Select: " psel
+        case "$psel" in
+            1) menu_slowdns ;;
+            2)
+                systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
+                systemctl restart dropbear 2>/dev/null || true
+                systemctl restart ws-dropbear 2>/dev/null || true
+                echo -e "  ${C_GREEN}✔ SSH and Dropbear services restarted.${C_RESET}"
+                ui_pause
+                ;;
+            3)
+                systemctl restart v2ray 2>/dev/null || true
+                systemctl restart nginx 2>/dev/null || true
+                echo -e "  ${C_GREEN}✔ V2Ray & Nginx restarted.${C_RESET}"
+                ui_pause
+                ;;
+            0) break ;;
+        esac
+    done
+}
+
 while true; do
     draw_banner
     draw_section "MAIN CONTROL HUB"
@@ -515,19 +421,21 @@ while true; do
     render_btn "2" "Protocols & Services Suite"
     render_btn "3" "Change Domain"
     render_btn "4" "Active Live Sessions"
-    render_btn "8" "Update Script"
-    render_danger_btn "9" "UNINSTALL & PURGE ALL"
     render_btn "0" "Exit"
 
     echo ""
-    read -p "  Select [0-9]: " mc
+    read -p "  Select [0-4]: " mc
     case "$mc" in
         1) menu_users ;;
         2) menu_protocols ;;
         3)
             read -p "  Enter new domain: " ndom
-            [[ -n "$ndom" ]] && echo "$ndom" > "$DOMAIN_FILE"
-            echo -e "  ${C_GREEN}✔ Domain updated.${C_RESET}"
+            if [[ -n "$ndom" ]]; then
+                echo "$ndom" > "$DOMAIN_FILE"
+                ensure_dnstt_service
+                systemctl restart dnstt 2>/dev/null || true
+                echo -e "  ${C_GREEN}✔ Domain updated.${C_RESET}"
+            fi
             ui_pause
             ;;
         4)
@@ -535,11 +443,9 @@ while true; do
             draw_section "LIVE SESSIONS"
             who
             echo ""
-            ss -tp '( sport = :22 or sport = :443 )' | head -n 10
+            ss -tp '( sport = :22 or sport = :443 )' 2>/dev/null | head -n 10
             ui_pause
             ;;
-        8) update_script ;;
-        9) purge_everything ;;
         0) printf "\033[2J\033[3J\033[H"; exit 0 ;;
     esac
 done

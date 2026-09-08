@@ -12,8 +12,8 @@ curl -fsSL -o /usr/local/bin/menu [https://raw.githubusercontent.com/Azdinmata/S
 
 ### Authentication Fix (Not for all)
 
-```bash
 # 1. Clean out cloud-init overrides that force-disable password logins
+```bash
 rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null
 rm -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf 2>/dev/null
 ```

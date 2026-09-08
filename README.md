@@ -5,8 +5,8 @@
 ### Installation
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/install.sh)```
-
+bash <(curl -fsSL https://raw.githubusercontent.com/Azdinmata/SSH-MANAGER-BY-AZDIN/main/install.sh)
+```
 ---
 
 ### Authentication Fix (Not for all)
